@@ -46,10 +46,10 @@ Không cần backend để chạy demo vì `.env.example` mặc định đặt `
 
 Các tài khoản sau **chỉ dùng trong mock mode**, không phải credential production:
 
-| Vai trò | Email | Mật khẩu |
-| --- | --- | --- |
-| Khách | `guest@cloudstay.vn` | `Guest123!` |
-| Admin | `admin@cloudstay.vn` | `Admin123!` |
+| Vai trò | Email                | Mật khẩu    |
+| ------- | -------------------- | ----------- |
+| Khách   | `guest@cloudstay.vn` | `Guest123!` |
+| Admin   | `admin@cloudstay.vn` | `Admin123!` |
 
 Trang đăng nhập có nút điền nhanh từng tài khoản.
 
@@ -87,7 +87,7 @@ Khởi động lại Vite sau khi đổi `.env`. Nếu thiếu URL khi tắt moc
 
 HTTP client hiện hỗ trợ:
 
-- Bearer access token giữ trong memory; reload trang ở real mode yêu cầu đăng nhập lại vì backend chưa có refresh token.
+- Bearer access token lưu trong localStorage, reload tự khôi phục qua GET /users/me, hết hạn sau 1h phải login lại.
 - Timeout, lỗi mạng, response JSON không hợp lệ, `401`, `403`, `409` và error envelope của backend.
 - Không tự retry `POST /bookings`.
 - Mapping `snake_case` ↔ `camelCase` tập trung trong adapter.
@@ -96,13 +96,13 @@ Tuy vậy, booking khách sạn thật còn chờ backend thống nhất `check_
 
 ## Biến môi trường
 
-| Biến | Mặc định mẫu | Ý nghĩa |
-| --- | --- | --- |
-| `VITE_USE_MOCK_API` | `true` | Chọn mock adapter (`true`) hoặc HTTP adapter (`false`). |
-| `VITE_IDENTITY_API_URL` | `http://localhost:3001` | Origin của identity service. |
-| `VITE_BOOKING_API_URL` | `http://localhost:3002` | Origin của booking/room service. |
-| `VITE_NOTIFICATION_API_URL` | `http://localhost:3003` | Origin của notification service. |
-| `VITE_API_TIMEOUT_MS` | `10000` | Timeout request real API theo mili giây. |
+| Biến                        | Mặc định mẫu            | Ý nghĩa                                                 |
+| --------------------------- | ----------------------- | ------------------------------------------------------- |
+| `VITE_USE_MOCK_API`         | `true`                  | Chọn mock adapter (`true`) hoặc HTTP adapter (`false`). |
+| `VITE_IDENTITY_API_URL`     | `http://localhost:3001` | Origin của identity service.                            |
+| `VITE_BOOKING_API_URL`      | `http://localhost:3002` | Origin của booking/room service.                        |
+| `VITE_NOTIFICATION_API_URL` | `http://localhost:3003` | Origin của notification service.                        |
+| `VITE_API_TIMEOUT_MS`       | `10000`                 | Timeout request real API theo mili giây.                |
 
 Mọi biến `VITE_*` được đóng gói vào JavaScript và **công khai trong trình duyệt**. Không đặt database password, service key, JWT signing secret, private token hoặc secret production vào các biến này.
 
