@@ -16,6 +16,19 @@ export function createIdempotencyKey() {
   return `stay-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
+export function createIdempotencyIntent(previous, payload, keyFactory = createIdempotencyKey) {
+  const fingerprint = JSON.stringify(payload)
+  if (previous?.fingerprint === fingerprint) return previous
+  return { fingerprint, key: keyFactory() }
+}
+
+export function bookingSubmissionState(error) {
+  if (error?.code === 'ROOM_UNAVAILABLE') return 'unavailable'
+  if (error?.code === 'IDEMPOTENCY_KEY_REUSED') return 'key-reused'
+  if (error?.code === 'TIMEOUT' || error?.code === 'NETWORK_ERROR') return 'uncertain'
+  return 'error'
+}
+
 export function bookingStatusLabel(status) {
   const labels = {
     confirmed: 'Đã xác nhận',

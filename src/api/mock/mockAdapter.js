@@ -1,5 +1,5 @@
 import { DEMO_ACCOUNTS } from '../../data/mockData'
-import { calculateNights, rangesOverlap, todayISO, validateStay } from '../../utils/date'
+import { addDays, calculateNights, canCustomerCancel, rangesOverlap, todayISO, validateStay } from '../../utils/date'
 import { ApiError } from '../errors'
 import { clearApiSession, getApiSession, setApiSession } from '../session'
 import { readMockState, resetMockState, updateMockState } from './store'
@@ -68,11 +68,23 @@ function compareNewest(first, second) {
   return String(second.createdAt ?? '').localeCompare(String(first.createdAt ?? ''))
 }
 
+function collection(data, meta = null) {
+  return { data: clone(data), meta: clone(meta) }
+}
+
+function paginated(data, filters = {}, defaultLimit = 10) {
+  const requestedPage = Number(filters.page)
+  const requestedLimit = Number(filters.limit)
+  const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1
+  const limit = Number.isInteger(requestedLimit) && requestedLimit > 0
+    ? requestedLimit
+    : defaultLimit
+  const start = (page - 1) * limit
+  return collection(data.slice(start, start + limit), { page, limit, total: data.length })
+}
+
 function canCancelBooking(booking, { asAdmin = false } = {}) {
-  return (
-    ACTIVE_BOOKING_STATUSES.has(booking.status) &&
-    (asAdmin || booking.checkInDate > todayISO())
-  )
+  return ACTIVE_BOOKING_STATUSES.has(booking.status) && (asAdmin || canCustomerCancel(booking))
 }
 
 function presentBooking(
@@ -162,7 +174,7 @@ function readRoomFilters(filters = {}, { admin = false } = {}) {
 
 function filterRooms(state, filters = {}, options = {}) {
   const { guests, minPrice, maxPrice, checkIn, checkOut } = readRoomFilters(filters, options)
-  const type = normalizeText(filters.type).toLowerCase()
+  const type = normalizeText(filters.roomType ?? filters.type).toLowerCase()
   const requestedBookable =
     filters.isBookable === undefined || filters.isBookable === ''
       ? null
@@ -244,7 +256,6 @@ function bookingFingerprint(payload) {
     checkInDate: payload.checkInDate,
     checkOutDate: payload.checkOutDate,
     guests: payload.guests,
-    specialRequests: payload.specialRequests ?? '',
   })
 }
 
@@ -256,6 +267,53 @@ function normalizeBookingPayload(payload = {}) {
     guests: Number(payload.guests),
     specialRequests: normalizeText(payload.specialRequests),
   }
+}
+
+async function cancelMockBooking(bookingId, options = {}, { admin = false } = {}) {
+  const user = admin ? requireAdmin() : requireUser()
+  const reason = normalizeText(typeof options === 'string' ? options : options.reason)
+  if (admin && reason.length < 2) {
+    throw apiError('Vui lòng nhập lý do hủy.', 400, 'VALIDATION_ERROR', { reason: 'required' })
+  }
+  let cancelledBooking
+
+  updateMockState((state) => {
+    const booking = findBooking(state, bookingId)
+    if (!admin && booking.userId !== user.id) {
+      throw apiError('Bạn không có quyền hủy đơn đặt phòng này.', 403, 'BOOKING_FORBIDDEN')
+    }
+    if (booking.status === 'cancelled') {
+      cancelledBooking = booking
+      return state
+    }
+    if (!ACTIVE_BOOKING_STATUSES.has(booking.status)) {
+      throw apiError('Đơn này không còn có thể hủy.', 409, 'BOOKING_NOT_CANCELLABLE')
+    }
+    if (!admin && !canCustomerCancel(booking)) {
+      throw apiError('Đã quá thời hạn hủy đơn này.', 409, 'CANCELLATION_WINDOW_PASSED')
+    }
+
+    booking.status = 'cancelled'
+    booking.cancelledAt = new Date().toISOString()
+    booking.cancelledBy = user.id
+    booking.cancellationReason = reason || null
+    cancelledBooking = booking
+
+    const room = state.rooms.find(({ id }) => id === booking.roomId)
+    state.notifications.push(
+      makeNotification(booking.userId, {
+        title: 'Đã hủy đặt phòng',
+        message: `Đơn ${booking.code}${room ? ` cho phòng ${room.name}` : ''} đã được hủy.`,
+        type: 'booking_cancelled',
+      }),
+    )
+    return state
+  })
+
+  return presentBooking(readMockState(), cancelledBooking, {
+    includeUser: admin,
+    allowAdminCancellation: admin,
+  })
 }
 
 function bookingCode() {
@@ -276,10 +334,15 @@ export function createMockApi() {
           ? registeredCredentials.get(email).userId
           : null
         const state = readMockState()
-        const user = demoAccount?.user ?? state.users.find(({ id }) => id === registeredUserId)
+        const userId = demoAccount?.user.id ?? registeredUserId
+        const user = state.users.find(({ id }) => id === userId)
 
         if (!user) {
           throw apiError('Email hoặc mật khẩu không đúng.', 401, 'INVALID_CREDENTIALS')
+        }
+
+        if (user.status === 'locked') {
+          throw apiError('Tài khoản đã bị khóa.', 403, 'ACCOUNT_LOCKED')
         }
 
         const session = {
@@ -315,6 +378,7 @@ export function createMockApi() {
           email,
           phone,
           role: 'customer',
+          status: 'active',
         }
         updateMockState((draft) => {
           draft.users.push(user)
@@ -323,29 +387,153 @@ export function createMockApi() {
         // Credentials stay in memory only; mock localStorage never contains passwords.
         registeredCredentials.set(email, { password, userId: user.id })
 
-        const session = {
-          accessToken: `mock-token-${user.id}-${Date.now()}`,
+        return {
+          accessToken: null,
           user: clone(user),
+          registrationSucceeded: true,
+          requiresLogin: true,
         }
-        setApiSession(session)
-        return clone(session)
+      },
+
+      async me() {
+        return clone(requireUser())
+      },
+
+      async adminListUsers() {
+        requireAdmin()
+        return collection(
+          readMockState().users.map((user) => ({ status: 'active', ...user })),
+        )
+      },
+
+      async updateUserStatus(userId, requestedStatus) {
+        requireAdmin()
+        const normalized = normalizeText(
+          typeof requestedStatus === 'object' ? requestedStatus.status : requestedStatus,
+        ).toLowerCase()
+        if (!['active', 'locked'].includes(normalized)) {
+          throw apiError('Trạng thái tài khoản không hợp lệ.', 400, 'VALIDATION_ERROR')
+        }
+        let updated
+        updateMockState((state) => {
+          const user = state.users.find(({ id }) => id === userId)
+          if (!user) throw apiError('Không tìm thấy người dùng.', 404, 'USER_NOT_FOUND')
+          user.status = normalized
+          updated = user
+          return state
+        })
+        return clone(updated)
       },
     },
 
     rooms: {
-      async search(filters = {}) {
-        const state = readMockState()
-        return clone(filterRooms(state, filters).sort((a, b) => a.pricePerNight - b.pricePerNight))
+      async list() {
+        const rooms = readMockState().rooms.filter((room) => room.isBookable)
+        return collection(rooms)
       },
 
-      async getById(roomId) {
-        return clone(findRoom(readMockState(), roomId))
+      async search(filters = {}) {
+        const state = readMockState()
+        const rooms = filterRooms(state, filters).sort((a, b) => a.pricePerNight - b.pricePerNight)
+        const result = paginated(rooms, filters, 12)
+        const { checkIn, checkOut } = validateDatePair(filters)
+        if (checkIn && checkOut) {
+          Object.assign(result.meta, {
+            checkIn,
+            checkOut,
+            nights: calculateNights(checkIn, checkOut),
+          })
+        }
+        return result
+      },
+
+      async getById(roomId, filters = {}) {
+        const state = readMockState()
+        const room = clone(findRoom(state, roomId))
+        const { checkIn, checkOut } = validateDatePair(filters)
+        if (checkIn && checkOut) {
+          const nights = calculateNights(checkIn, checkOut)
+          room.stay = {
+            checkIn,
+            checkOut,
+            nights,
+            totalPrice: room.pricePerNight * nights,
+            available: !hasBookingConflict(state, roomId, checkIn, checkOut),
+          }
+        }
+        return room
+      },
+
+      async unavailableDates(roomId, filters = {}) {
+        const state = readMockState()
+        findRoom(state, roomId)
+        const from = filters.from ?? todayISO()
+        const to = filters.to ?? addDays(from, 90)
+        const bookings = state.bookings.filter(
+          (booking) =>
+            booking.roomId === roomId &&
+            ACTIVE_BOOKING_STATUSES.has(booking.status) &&
+            rangesOverlap(from, to, booking.checkInDate, booking.checkOutDate),
+        )
+        const unavailableDates = []
+        bookings.forEach((booking) => {
+          let date = booking.checkInDate < from ? from : booking.checkInDate
+          const end = booking.checkOutDate > to ? to : booking.checkOutDate
+          while (date < end) {
+            unavailableDates.push(date)
+            date = addDays(date, 1)
+          }
+        })
+        return {
+          roomId,
+          from,
+          to,
+          bookedRanges: bookings.map((booking) => ({
+            checkIn: booking.checkInDate,
+            checkOut: booking.checkOutDate,
+          })),
+          unavailableDates: [...new Set(unavailableDates)].sort(),
+        }
+      },
+
+      async alternatives(roomId, filters = {}) {
+        const state = readMockState()
+        const room = findRoom(state, roomId)
+        const { checkIn, checkOut } = validateDatePair(filters)
+        const nights = calculateNights(checkIn, checkOut)
+        const available = !hasBookingConflict(state, roomId, checkIn, checkOut)
+        const otherRooms = available
+          ? []
+          : filterRooms(state, filters)
+              .filter((candidate) => candidate.id !== roomId)
+              .slice(0, 5)
+              .map((candidate) => ({
+                ...candidate,
+                nights,
+                totalPrice: candidate.pricePerNight * nights,
+                available: true,
+              }))
+        return {
+          requested: {
+            checkIn,
+            checkOut,
+            nights,
+            totalPrice: room.pricePerNight * nights,
+            available,
+          },
+          sameRoomRanges: [],
+          otherRooms,
+        }
       },
 
       async adminList(filters = {}) {
         requireAdmin()
         const state = readMockState()
-        return clone(filterRooms(state, filters, { admin: true }).sort((a, b) => a.roomNumber.localeCompare(b.roomNumber)))
+        return collection(
+          filterRooms(state, filters, { admin: true }).sort((a, b) =>
+            a.roomNumber.localeCompare(b.roomNumber),
+          ),
+        )
       },
 
       async create(payload = {}) {
@@ -519,11 +707,13 @@ export function createMockApi() {
       async mine(filters = {}) {
         const user = requireUser()
         const state = readMockState()
-        return state.bookings
+        const status = normalizeText(filters.status).toLowerCase()
+        const bookings = state.bookings
           .filter((booking) => booking.userId === user.id)
-          .filter((booking) => !filters.status || booking.status === filters.status)
+          .filter((booking) => !status || booking.status === status)
           .sort(compareNewest)
           .map((booking) => presentBooking(state, booking))
+        return paginated(bookings, filters, 10)
       },
 
       async getById(bookingId) {
@@ -540,9 +730,12 @@ export function createMockApi() {
       async adminList(filters = {}) {
         requireAdmin()
         const state = readMockState()
+        const status = normalizeText(filters.status).toLowerCase()
         const query = normalizeText(filters.query ?? filters.search).toLowerCase()
-        return state.bookings
-          .filter((booking) => !filters.status || booking.status === filters.status)
+        const bookings = state.bookings
+          .filter((booking) => !status || booking.status === status)
+          .filter((booking) => !filters.roomId || booking.roomId === filters.roomId)
+          .filter((booking) => !filters.userId || booking.userId === filters.userId)
           .filter((booking) => {
             if (!query) return true
             const room = state.rooms.find(({ id }) => id === booking.roomId)
@@ -559,55 +752,38 @@ export function createMockApi() {
               allowAdminCancellation: true,
             }),
           )
+        return paginated(bookings, filters, 20)
       },
 
-      async cancel(bookingId, options = {}) {
-        const user = requireUser()
-        const reason = normalizeText(typeof options === 'string' ? options : options.reason)
-        let cancelledBooking
+      cancelMine(bookingId, options = {}) {
+        return cancelMockBooking(bookingId, options)
+      },
 
-        updateMockState((state) => {
-          const booking = findBooking(state, bookingId)
-          ensureBookingAccess(booking, user)
-          if (booking.status === 'cancelled') {
-            cancelledBooking = booking
-            return state
-          }
-          if (!ACTIVE_BOOKING_STATUSES.has(booking.status)) {
-            throw apiError('Đơn này không còn có thể hủy.', 409, 'BOOKING_NOT_CANCELLABLE')
-          }
-          if (user.role !== 'admin' && booking.checkInDate <= todayISO()) {
-            throw apiError('Đã quá thời hạn hủy đơn này.', 409, 'BOOKING_NOT_CANCELLABLE')
-          }
+      cancelAdmin(bookingId, options = {}) {
+        return cancelMockBooking(bookingId, options, { admin: true })
+      },
 
-          booking.status = 'cancelled'
-          booking.cancelledAt = new Date().toISOString()
-          booking.cancelledBy = user.id
-          booking.cancellationReason = reason || null
-          cancelledBooking = booking
+      cancel(bookingId, options = {}) {
+        return options?.asAdmin || options?.admin
+          ? cancelMockBooking(bookingId, options, { admin: true })
+          : cancelMockBooking(bookingId, options)
+      },
 
-          const room = state.rooms.find(({ id }) => id === booking.roomId)
-          state.notifications.push(
-            makeNotification(booking.userId, {
-              title: 'Đã hủy đặt phòng',
-              message: `Đơn ${booking.code}${room ? ` cho phòng ${room.name}` : ''} đã được hủy.`,
-              type: 'booking_cancelled',
-            }),
-          )
-          return state
-        })
+      async listOutbox() {
+        requireAdmin()
+        return collection([])
+      },
 
-        return presentBooking(readMockState(), cancelledBooking, {
-          includeUser: user.role === 'admin',
-          allowAdminCancellation: user.role === 'admin',
-        })
+      async retryOutbox() {
+        requireAdmin()
+        return collection([])
       },
     },
 
     notifications: {
       async mine() {
         const user = requireUser()
-        return clone(
+        return collection(
           readMockState().notifications
             .filter((notification) => notification.userId === user.id)
             .sort(compareNewest),
@@ -637,11 +813,13 @@ export function createMockApi() {
         const user = requireUser()
         const readAt = new Date().toISOString()
         let notifications
+        let updatedCount = 0
         updateMockState((state) => {
           state.notifications.forEach((notification) => {
             if (notification.userId === user.id && !notification.read) {
               notification.read = true
               notification.readAt = readAt
+              updatedCount += 1
             }
           })
           notifications = state.notifications
@@ -649,7 +827,13 @@ export function createMockApi() {
             .sort(compareNewest)
           return state
         })
-        return clone(notifications)
+        return {
+          ...collection(notifications),
+          attemptedCount: updatedCount,
+          updatedCount,
+          failedCount: 0,
+          failures: [],
+        }
       },
     },
   }

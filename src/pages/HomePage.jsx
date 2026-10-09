@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, Clock3, Coffee, Leaf, ShieldCheck, Sparkles, Waves } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { api, isMockMode } from '../api'
@@ -11,14 +11,18 @@ export default function HomePage() {
   const [rooms, setRooms] = useState([])
   const [status, setStatus] = useState('loading')
   const [error, setError] = useState('')
+  const requestIdRef = useRef(0)
 
   const loadRooms = async () => {
+    const requestId = ++requestIdRef.current
     setStatus('loading')
     try {
-      const result = await api.rooms.search({})
-      setRooms(result.filter((room) => room.featured).slice(0, 3))
+      const result = await api.rooms.list()
+      if (requestId !== requestIdRef.current) return
+      setRooms(result.data.filter((room) => room.featured).slice(0, 3))
       setStatus('success')
     } catch (loadError) {
+      if (requestId !== requestIdRef.current) return
       setError(getErrorMessage(loadError))
       setStatus('error')
     }
@@ -26,6 +30,9 @@ export default function HomePage() {
 
   useEffect(() => {
     loadRooms()
+    return () => {
+      requestIdRef.current += 1
+    }
   }, [])
 
   return (

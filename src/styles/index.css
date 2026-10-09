@@ -28,6 +28,83 @@
   --radius-lg: 28px;
 }
 
+/* Backend integration states */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 28px;
+}
+
+.pagination > span,
+.collection-scope {
+  color: var(--muted);
+  font-size: .76rem;
+  font-weight: 700;
+  letter-spacing: .03em;
+}
+
+.collection-scope { margin: 0 0 14px; }
+
+.inline-notice {
+  margin: 14px 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(42, 91, 101, .18);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .72);
+  color: var(--muted);
+  font-size: .78rem;
+  line-height: 1.6;
+}
+
+.inline-notice--warning {
+  border-color: rgba(177, 118, 55, .3);
+  background: #fff9ee;
+  color: #76542f;
+}
+
+.inline-notice code { font-size: .74rem; }
+
+.availability-block { display: grid; gap: 10px; }
+.availability-block > p { margin: 0; color: var(--muted); }
+
+.date-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.date-chips span {
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: var(--cream-100);
+  color: var(--navy-800);
+  font-size: .72rem;
+  font-weight: 700;
+}
+
+.table-secondary-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: none;
+  color: var(--navy-700);
+  cursor: pointer;
+  font-size: .72rem;
+  font-weight: 700;
+}
+
+.table-secondary-action svg { width: 16px; }
+.table-secondary-action:disabled { cursor: not-allowed; opacity: .45; }
+
+@media (max-width: 640px) {
+  .pagination { align-items: stretch; flex-direction: column; text-align: center; }
+  .pagination .button { width: 100%; }
+  .admin-sidebar nav { grid-template-columns: repeat(5, 1fr); }
+}
+
 * {
   box-sizing: border-box;
 }
@@ -2856,7 +2933,7 @@ textarea:focus-visible {
   .admin-sidebar > .brand,
   .admin-sidebar__label,
   .admin-sidebar__bottom { display: none; }
-  .admin-sidebar nav { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .admin-sidebar nav { display: grid; grid-template-columns: repeat(5, 1fr); }
   .admin-nav-link,
   .admin-nav-link:not(.admin-nav-link--active)::after { flex-direction: column; gap: 2px; font-size: .62rem; }
   .admin-nav-link svg { width: 18px; }

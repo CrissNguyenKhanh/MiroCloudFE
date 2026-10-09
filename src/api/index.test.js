@@ -40,7 +40,9 @@ describe('mock API booking lifecycle', () => {
     const { checkInDate, checkOutDate } = futureStay()
     const search = { checkIn: checkInDate, checkOut: checkOutDate, guests: 2 }
     const initiallyAvailable = await api.rooms.search(search)
-    const room = initiallyAvailable.find((candidate) => candidate.capacity >= 2)
+    const room = initiallyAvailable.data.find((candidate) => candidate.capacity >= 2)
+
+    expect(initiallyAvailable.meta).toMatchObject({ page: 1, total: expect.any(Number) })
 
     expect(room).toBeDefined()
 
@@ -61,35 +63,35 @@ describe('mock API booking lifecycle', () => {
     })
 
     const mine = await api.bookings.mine()
-    expect(mine).toContainEqual(expect.objectContaining({ id: booking.id, roomId: room.id }))
+    expect(mine.data).toContainEqual(expect.objectContaining({ id: booking.id, roomId: room.id }))
 
     const unavailable = await api.rooms.search(search)
-    expect(unavailable.some((candidate) => candidate.id === room.id)).toBe(false)
+    expect(unavailable.data.some((candidate) => candidate.id === room.id)).toBe(false)
 
     const adjacentStay = await api.rooms.search({
       checkIn: checkOutDate,
       checkOut: addDays(checkOutDate, 1),
       guests: 2,
     })
-    expect(adjacentStay.some((candidate) => candidate.id === room.id)).toBe(true)
+    expect(adjacentStay.data.some((candidate) => candidate.id === room.id)).toBe(true)
 
-    const cancelled = await api.bookings.cancel(booking.id, { reason: 'Thay đổi kế hoạch' })
+    const cancelled = await api.bookings.cancelMine(booking.id, { reason: 'Thay đổi kế hoạch' })
     expect(cancelled).toMatchObject({ id: booking.id, status: 'cancelled' })
 
     const mineAfterCancel = await api.bookings.mine()
-    expect(mineAfterCancel).toContainEqual(
+    expect(mineAfterCancel.data).toContainEqual(
       expect.objectContaining({ id: booking.id, status: 'cancelled' }),
     )
 
     const availableAgain = await api.rooms.search(search)
-    expect(availableAgain.some((candidate) => candidate.id === room.id)).toBe(true)
+    expect(availableAgain.data.some((candidate) => candidate.id === room.id)).toBe(true)
   })
 
   it('replays the same idempotency key without duplication and rejects a new overlapping booking with 409', async () => {
     await loginAsGuest()
 
     const { checkInDate, checkOutDate } = futureStay(40)
-    const room = (await api.rooms.search({ checkIn: checkInDate, checkOut: checkOutDate, guests: 1 }))[0]
+    const room = (await api.rooms.search({ checkIn: checkInDate, checkOut: checkOutDate, guests: 1 })).data[0]
     const payload = { roomId: room.id, checkInDate, checkOutDate, guests: 1 }
 
     const created = await api.bookings.create(payload, { idempotencyKey: 'stable-retry-key' })
@@ -98,12 +100,12 @@ describe('mock API booking lifecycle', () => {
     expect(replayed.id).toBe(created.id)
     await expect(
       api.bookings.create(
-        { ...payload, specialRequests: 'Yêu cầu khác với lần gửi đầu' },
+        { ...payload, guests: 2 },
         { idempotencyKey: 'stable-retry-key' },
       ),
     ).rejects.toMatchObject({ status: 409, code: 'IDEMPOTENCY_KEY_REUSED' })
 
-    const matchingBookings = (await api.bookings.mine()).filter(
+    const matchingBookings = (await api.bookings.mine()).data.filter(
       (booking) => booking.id === created.id,
     )
     expect(matchingBookings).toHaveLength(1)
@@ -123,7 +125,7 @@ describe('mock API booking lifecycle', () => {
   it('creates booking notifications and marks one or all as read', async () => {
     await loginAsGuest()
     const { checkInDate, checkOutDate } = futureStay(50)
-    const room = (await api.rooms.search({ checkIn: checkInDate, checkOut: checkOutDate, guests: 1 }))[0]
+    const room = (await api.rooms.search({ checkIn: checkInDate, checkOut: checkOutDate, guests: 1 })).data[0]
 
     await api.bookings.create(
       { roomId: room.id, checkInDate, checkOutDate, guests: 1 },
@@ -131,7 +133,7 @@ describe('mock API booking lifecycle', () => {
     )
 
     const notifications = await api.notifications.mine()
-    const bookingNotification = notifications.find(
+    const bookingNotification = notifications.data.find(
       (notification) => notification.type === 'booking_confirmed',
     )
     expect(bookingNotification).toMatchObject({ read: false })
@@ -140,11 +142,12 @@ describe('mock API booking lifecycle', () => {
       id: bookingNotification.id,
       read: true,
     })
-    await api.notifications.markAllRead()
-    expect(await api.notifications.mine()).toEqual(
+    const markAllResult = await api.notifications.markAllRead()
+    expect(markAllResult).toMatchObject({ failedCount: 0 })
+    expect((await api.notifications.mine()).data).toEqual(
       expect.arrayContaining([expect.objectContaining({ read: true })]),
     )
-    expect((await api.notifications.mine()).every((notification) => notification.read)).toBe(true)
+    expect((await api.notifications.mine()).data.every((notification) => notification.read)).toBe(true)
   })
 
   it('supports admin room creation, editing and booking toggle', async () => {
@@ -159,7 +162,7 @@ describe('mock API booking lifecycle', () => {
       capacity: 3,
       amenities: ['Wi-Fi'],
     })
-    expect(await api.rooms.adminList()).toContainEqual(
+    expect((await api.rooms.adminList()).data).toContainEqual(
       expect.objectContaining({ id: created.id, roomNumber: '1501' }),
     )
 
@@ -169,6 +172,6 @@ describe('mock API booking lifecycle', () => {
     await expect(api.rooms.toggleBookable(created.id, false)).resolves.toMatchObject({
       isBookable: false,
     })
-    expect((await api.rooms.search({})).some((room) => room.id === created.id)).toBe(false)
+    expect((await api.rooms.search({})).data.some((room) => room.id === created.id)).toBe(false)
   })
 })

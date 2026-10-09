@@ -1,5 +1,5 @@
 import { setApiSession } from "../session";
-import { normalizeAuth, normalizeUser, toApi } from "./mapping";
+import { asCollection, encodeId, normalizeAuth, normalizeUser, toApi } from "./mapping";
 
 function registrationPayload(payload = {}) {
   return {
@@ -47,18 +47,40 @@ export function createIdentityHttpApi(request) {
       });
       const session = normalizeAuth(response);
 
-      // Keep register behavior aligned with mock mode when the backend returns
-      // only the new user: authenticate with the credentials just submitted.
-      if (!session.accessToken && payload?.email && payload?.password) {
-        return authenticate("/api/v1/auth/login", {
-          email: payload.email,
-          password: payload.password,
-        });
+      // The current backend deliberately returns the created user, not a
+      // token. Do not chain an implicit login: if that second request failed,
+      // callers could incorrectly retry registration even though it committed.
+      if (!session.accessToken) {
+        return {
+          accessToken: null,
+          user: session.user ?? normalizeUser(response),
+          registrationSucceeded: true,
+          requiresLogin: true,
+        };
       }
 
       const hydratedSession = await hydrateUser(session);
       setApiSession(hydratedSession);
-      return hydratedSession;
+      return {
+        ...hydratedSession,
+        registrationSucceeded: true,
+        requiresLogin: false,
+      };
+    },
+
+    async adminListUsers() {
+      const collection = asCollection(await request("/api/v1/admin/users"), ["users"]);
+      return { ...collection, data: collection.data.map(normalizeUser) };
+    },
+
+    async updateUserStatus(id, status) {
+      const value = typeof status === "object" ? status?.status : status;
+      return normalizeUser(
+        await request(`/api/v1/admin/users/${encodeId(id)}/status`, {
+          method: "PATCH",
+          body: { status: typeof value === "string" ? value.toUpperCase() : value },
+        }),
+      );
     },
   };
 }
