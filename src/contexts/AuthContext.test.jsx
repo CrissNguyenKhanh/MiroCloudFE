@@ -1,6 +1,6 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { meMock } = vi.hoisted(() => ({ meMock: vi.fn() }))
 
@@ -16,6 +16,7 @@ vi.mock('../api', () => ({
 }))
 
 import { clearApiSession, getApiSession, setApiSession } from '../api/session'
+import { createHttpClient } from '../api/client'
 import { AuthProvider, useAuth } from './AuthContext'
 
 function Probe() {
@@ -25,6 +26,7 @@ function Probe() {
       <span>{auth.isInitializing ? 'initializing' : auth.isAuthenticated ? `authenticated:${auth.user.id}` : 'anonymous'}</span>
       {auth.restoreError && <span role="alert">{auth.restoreError}</span>}
       <button type="button" onClick={auth.retrySession}>retry</button>
+      <button type="button" onClick={auth.logout}>logout</button>
     </div>
   )
 }
@@ -39,6 +41,10 @@ describe('AuthProvider session restoration', () => {
     meMock.mockReset()
   })
 
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it('keeps guards initializing until /users/me restores the user', async () => {
     let resolveMe
     meMock.mockReturnValue(new Promise((resolve) => { resolveMe = resolve }))
@@ -51,12 +57,43 @@ describe('AuthProvider session restoration', () => {
   })
 
   it('clears an unauthorized session instead of leaving a restore error', async () => {
-    meMock.mockRejectedValue(Object.assign(new Error('expired'), { status: 401 }))
+    const request = createHttpClient({ baseUrl: 'https://identity.test' })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      headers: { get: () => 'application/json' },
+      json: vi.fn().mockResolvedValue({
+        error: { code: 'AUTH_INVALID', message: 'expired' },
+      }),
+    }))
+    meMock.mockImplementation(() => request('/api/v1/users/me'))
     setApiSession({ accessToken: 'expired-token' })
     renderProvider()
 
     expect(await screen.findByText('anonymous')).toBeVisible()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(getApiSession()).toEqual({ accessToken: null, user: null })
+  })
+
+  it('stays anonymous when logout invalidates an in-flight restore', async () => {
+    let resolveMe
+    meMock.mockReturnValue(new Promise((resolve) => {
+      resolveMe = resolve
+    }))
+    setApiSession({ accessToken: 'persisted-token' })
+    renderProvider()
+
+    expect(screen.getByText('initializing')).toBeVisible()
+    await userEvent.click(screen.getByRole('button', { name: 'logout' }))
+
+    expect(screen.getByText('anonymous')).toBeVisible()
+    expect(getApiSession()).toEqual({ accessToken: null, user: null })
+
+    await act(async () => {
+      resolveMe({ id: 'stale-user', role: 'customer' })
+    })
+
+    expect(screen.getByText('anonymous')).toBeVisible()
     expect(getApiSession()).toEqual({ accessToken: null, user: null })
   })
 

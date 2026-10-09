@@ -82,6 +82,7 @@ export function AuthProvider({ children }) {
     restoreRequestRef.current += 1;
     clearApiSession();
     setUser(null);
+    setIsInitializing(false);
     setRestoreError("");
     localStorage.removeItem(MOCK_SESSION_KEY);
   }, []);
