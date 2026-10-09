@@ -1,22 +1,108 @@
 # Backend integration
 
-Tài liệu này ghi lại việc đối chiếu read-only với backend repository `cloud-room-booking` ngày **05/10/2026**. Không file backend nào bị chỉnh sửa.
+Tài liệu này ghi lại contract frontend đã đối chiếu read-only với repository `cloud-room-booking` ngày **09/10/2026**.
 
-## Kết luận
+- Backend `origin/main`: `d9727cba5b55f94e6e9bacd7ca2b89f68bf576b2`.
+- Backend `origin/fix/booking-ci-after-merge`: `7254e8f00f496a7211ff3c0500ede3242dce9788`.
+- Nhánh fix chỉ sửa readiness và booking tests; public API contract giống `main`.
+- Code router/controller/schema/service/repository là nguồn sự thật. `docs/api-contract.md` của backend còn ghi endpoint availability cũ.
+- Audit không đổi backend, không chạy migration/seed và không kết nối Neon.
 
-Backend hiện là hệ thống đặt **phòng học/phòng họp theo ngày và ca**, chưa phải booking khách sạn theo kỳ lưu trú. Vì vậy frontend mặc định dùng mock mode hoàn chỉnh và không tuyên bố đã tích hợp booking khách sạn thật.
+## Quy ước chung
 
-Booking backend hiện yêu cầu:
+- Public prefix: `/api/v1`; browser không gọi `/internal/v1/*`.
+- Auth: `Authorization: Bearer <access_token>`.
+- Thành công entity thường là `{ "data": entity }`.
+- Collection có thể là `{ "data": [] }` hoặc `{ "data": [], "meta": {...} }`.
+- Lỗi: `{ "error": { "code", "message", "details"? }, "request_id" }`.
+- UI dùng camelCase; HTTP adapter map field snake_case và giữ nguyên metadata phân trang.
+- Role/status backend dùng chữ hoa; adapter normalize về chữ thường cho giao diện.
 
-```json
-{
-  "room_id": "uuid",
-  "slot_id": "uuid",
-  "booking_date": "YYYY-MM-DD"
-}
+## Bảng tích hợp
+
+| Chức năng frontend | Endpoint backend | Request/response chính | Hỗ trợ |
+| --- | --- | --- | --- |
+| Register | `POST /api/v1/auth/register` | Strict `{email,password,full_name}`; trả user, không token | Hoàn tất; chuyển sang login, không auto-register lại |
+| Login/session | `POST /auth/login`, `GET /users/me` | Login trả token; `/me` trả user | Hoàn tất, có restore/retry khi lỗi mạng |
+| Search phòng | `GET /rooms/search` | `check_in`, `check_out`, `guests`, `room_type`, giá, page/limit; trả data+meta | Hoàn tất |
+| Chi tiết phòng | `GET /rooms/:id` | Optional `check_in/check_out`; có `stay.available/total_price` | Hoàn tất |
+| Ngày kín/phòng khác | `GET /rooms/:id/unavailable-dates`, `/alternatives` | Khoảng ngày và số khách | Hoàn tất |
+| Tạo booking | `POST /bookings` | `Idempotency-Key`; strict body 4 field | Hoàn tất |
+| Booking của tôi | `GET /bookings/me` | status/when/page/limit + meta | Hoàn tất |
+| Hủy của khách | `POST /bookings/:id/cancel` | reason optional | Hoàn tất |
+| Notification | `GET /notifications`, `PATCH /notifications/:id/read` | Không có read-all | Hoàn tất; mark-all gọi từng item |
+| Admin phòng | `POST/PATCH /admin/rooms/:id?` | Whitelist room schema | Hoàn tất trong giới hạn active-only |
+| Admin booking | `GET /admin/bookings`, `POST /admin/bookings/:id/cancel` | Filter status/page/limit; reason bắt buộc | Hoàn tất một phần do bug filter backend |
+| Admin users | `GET /admin/users`, `PATCH /admin/users/:id/status` | `ACTIVE` hoặc `LOCKED` | Hoàn tất |
+| Admin outbox | `GET /admin/outbox`, `POST /admin/outbox/retry` | JWT admin; không body retry | Hoàn tất |
+
+## Identity Service
+
+| Endpoint | Contract |
+| --- | --- |
+| `POST /api/v1/auth/register` | Strict `{email,password,full_name}`; password 8–72, tên 2–100; trả `201 {data: User}` |
+| `POST /api/v1/auth/login` | Strict `{email,password}`; trả token, không trả user |
+| `GET /api/v1/users/me` | Trả user hiện tại |
+| `GET /api/v1/admin/users` | Trả `{data: User[]}`, không pagination |
+| `PATCH /api/v1/admin/users/:id/status` | Strict `{status:"ACTIVE"|"LOCKED"}` |
+
+Frontend không gửi phone khi đăng ký real mode. Sau register thành công, UI chuyển sang login thay vì tự login trong cùng thao tác; vì vậy login lỗi không khiến người dùng đăng ký trùng.
+
+Token được lưu để khôi phục phiên. Khi `/users/me` trả 401/403, frontend xóa phiên; khi chỉ lỗi mạng/timeout, token được giữ và route guard hiển thị nút thử lại.
+
+## Rooms và availability
+
+### Danh sách/search
+
+- `GET /api/v1/rooms` chỉ trả phòng `active=true`, không kiểm tra availability và không có meta.
+- `GET /api/v1/rooms/search` nhận:
+  `check_in`, `check_out`, `guests`, `room_type`, `min_price`, `max_price`, `page`, `limit`.
+- Search trả `{data,meta:{page,limit,total,check_in?,check_out?,nights?}}`.
+- Cả hai ngày phải được gửi cùng nhau; tối đa 30 đêm và 20 khách.
+
+Mapping room:
+
+```text
+room_type       -> type
+size_sqm        -> size
+bed_type        -> bed
+view_label      -> view
+equipment       -> amenities
+active          -> isBookable
+price_per_night -> pricePerNight
 ```
 
-Frontend CloudStay cần tối thiểu:
+Adapter giữ đúng giá trị `0` và `false`; chỉ dùng placeholder trình bày khi field thật sự thiếu.
+
+### Detail và lịch kín
+
+- `GET /api/v1/rooms/:id?check_in&check_out` trả thêm `stay` với ngày, số đêm, tổng giá và availability.
+- `GET /api/v1/rooms/:id/unavailable-dates?from&to` trả `booked_ranges` và `unavailable_dates`.
+- `GET /api/v1/rooms/:id/alternatives?check_in&check_out&guests` trả khoảng thay thế cùng phòng và phòng khác.
+- Khoảng lưu trú dùng quy ước nửa mở `[check-in, check-out)`: ngày checkout có thể là check-in của khách tiếp theo.
+- Native date input không thể khóa chính xác từng ngày kín; UI hiển thị ngày kín và kiểm tra toàn khoảng bằng API.
+
+### Admin room
+
+Payload create/update chỉ gồm:
+
+```text
+room_number, name, room_type, price_per_night, capacity,
+size_sqm, bed_type, view_label, floor, featured, description,
+palette, equipment, active
+```
+
+Toggle gửi `{active:boolean}`. Backend chưa có `GET /api/v1/admin/rooms`; real mode chỉ hiển thị active rooms từ public list. Sau khi tắt một phòng, frontend không giả lập inventory inactive hoặc lưu local để “khôi phục”.
+
+## Booking Service
+
+### Create
+
+`POST /api/v1/bookings` yêu cầu:
+
+```http
+Idempotency-Key: 8-128 ký tự [A-Za-z0-9._:-]
+```
 
 ```json
 {
@@ -27,147 +113,90 @@ Frontend CloudStay cần tối thiểu:
 }
 ```
 
-Hai contract này không thể map an toàn chỉ bằng đổi tên field. Backend cần hỗ trợ nghiệp vụ khoảng ngày, sức chứa và pricing trước khi bật real mode cho luồng khách sạn.
+Frontend không gửi `special_requests`. Một key gắn với đúng một payload: retry timeout/network giữ key cũ; payload thay đổi tạo key mới. Frontend không tự retry POST.
 
-## Quy ước đã xác minh
+Kết quả mới trả 201; replay cùng key/payload trả 200. Các code quan trọng:
 
-- Public API prefix: `/api/v1`.
-- Service-to-service prefix: `/internal/v1`.
-- Success response chủ yếu bọc trong `{ "data": ... }`.
-- Error response: `{ "error": { "code", "message", "details"? }, "request_id" }`.
-- Identity chạy cổng `3001`, Booking `3002`, Notification `3003` trong compose local.
-- Auth header: `Authorization: Bearer <access_token>`.
-- JWT dùng HS256 với claim `sub`, `role`, `status`; backend kiểm tra issuer/audience.
-- Role backend: `USER | ADMIN`; user status: `ACTIVE | LOCKED`.
-- Không có refresh-token hoặc logout endpoint.
+- `ROOM_UNAVAILABLE`
+- `IDEMPOTENCY_KEY_REUSED`
+- `GUESTS_EXCEED_CAPACITY`
+- `VALIDATION_ERROR`
+- `ROOM_NOT_FOUND`
 
-HTTP client frontend đã hỗ trợ success/error envelope trên và normalize role/status về chữ thường cho UI.
+Timeout/network được trình bày là “chưa xác định kết quả”, không khẳng định booking thất bại.
 
-## Identity service
+### List/detail/cancel
 
-| Endpoint hiện tại | Request | Response/ghi chú |
-| --- | --- | --- |
-| `POST /api/v1/auth/register` | `email`, `password` 8–72 ký tự, `full_name` 2–100 | `201 {data: User}`; không trả token. Frontend real adapter login tiếp bằng credential vừa gửi. |
-| `POST /api/v1/auth/login` | `email`, `password` | `{data:{access_token,token_type:"Bearer",expires_in:"1h"}}`. |
-| `GET /api/v1/users/me` | Bearer token | `{data: User}`. Frontend gọi sau login vì login không trả user. |
-| `GET /api/v1/admin/users` | Admin JWT | `{data: User[]}`. Chưa dùng trong UI hiện tại. |
-| `PATCH /api/v1/admin/users/:id/status` | `{status:"ACTIVE"|"LOCKED"}` | Quản lý trạng thái user. |
+- `GET /api/v1/bookings/me`: default 10, max 50; filter `status`, `when`, `page`, `limit`.
+- `GET /api/v1/admin/bookings`: default 20, max 100; filter `status`, `room_id`, `user_id`, page/limit.
+- `GET /api/v1/bookings/:id`: ownership được backend kiểm tra và response có `can_cancel`.
+- Customer cancel: reason optional; nếu gửi phải trim còn 2–300 ký tự.
+- Admin cancel: reason bắt buộc 2–300 ký tự và dùng endpoint admin rõ ràng.
+- Deadline khách: được phép đến đúng thời điểm 24 giờ trước 14:00 ngày check-in theo `Asia/Ho_Chi_Minh`; quá hạn trả `CANCELLATION_WINDOW_PASSED`.
 
-`User` hiện có `id`, `email`, `full_name`, `role`, `status`, `created_at`, `updated_at`; không có phone.
+Danh sách booking không có `can_cancel`; frontend dùng đúng cutoff trên làm fallback, backend vẫn quyết định cuối cùng.
 
-Admin chỉ được seed nếu backend cấu hình `SEED_ADMIN_EMAIL` và `SEED_ADMIN_PASSWORD`; không nên giả định luôn tồn tại ở môi trường thật.
+### Blocker backend đã xác minh
 
-## Booking/room service hiện tại
+Controller admin booking parse `room_id/user_id`, service truyền nguyên query, nhưng repository destructure `roomId/userId`. Vì vậy hai filter này hiện bị bỏ qua; `status/page/limit` vẫn hoạt động. UI chỉ bật filter trạng thái và ghi rõ blocker.
 
-### Public
+Pagination dùng window count. Khi page vượt phạm vi và trả mảng rỗng, backend trả `total:0`; UI vẫn cho quay lại trang trước và không suy diễn đây là tổng thật.
 
-| Endpoint hiện tại | Ghi chú |
-| --- | --- |
-| `GET /api/v1/rooms` | Chỉ trả phòng `active=true`; Room không có giá/loại/ảnh/mô tả. |
-| `GET /api/v1/rooms/:id` | Chỉ lấy phòng active. |
-| `GET /api/v1/availability?room_id=<uuid>&date=YYYY-MM-DD` | Trả một phòng, một ngày và danh sách slot. |
-| `POST /api/v1/bookings` | JWT + `Idempotency-Key`; body chỉ có `room_id`, `slot_id`, `booking_date`. |
-| `GET /api/v1/bookings/me` | Booking của user trong JWT. |
-| `POST /api/v1/bookings/:id/cancel` | Body `{reason}` dài 2–300. |
+## Notification và outbox
 
-Conflict phòng/ngày/ca trả `409 ROOM_SLOT_CONFLICT`. Dùng lại idempotency key với payload khác trả `409 IDEMPOTENCY_KEY_REUSED`. Key phải dài 8–128 và chỉ dùng `[A-Za-z0-9._:-]`.
+- Notification chỉ có list và mark-read từng item; không gọi thử endpoint read-all không tồn tại.
+- Mark-all dùng `Promise.allSettled`, tải lại danh sách và báo số item lỗi nếu chỉ thành công một phần.
+- Booking commit không phụ thuộc việc notification hiển thị ngay. UI không nói booking thất bại nếu notification chậm/lỗi.
+- Booking outbox gửi `check_in_date/check_out_date`, nhưng notification formatter hiện còn đọc field cũ `booking_date`; message có thể dùng câu fallback chung.
+- Admin outbox list tối đa 200 event. Retry chỉ chạy khi admin xác nhận, không polling và không dùng service key từ browser.
 
-`Room` hiện có:
+## Cấu hình
 
-```text
-id, name, capacity, equipment, active, created_at, updated_at
+Mock mode:
+
+```env
+VITE_USE_MOCK_API=true
 ```
 
-`Booking` hiện có:
+Real mode local:
 
-```text
-id, room_id, user_id, booking_date, slot_id, status,
-cancel_reason, idempotency_key, request_hash, created_at, updated_at
+```env
+VITE_USE_MOCK_API=false
+VITE_IDENTITY_API_URL=http://localhost:3001
+VITE_BOOKING_API_URL=http://localhost:3002
+VITE_NOTIFICATION_API_URL=http://localhost:3003
+VITE_API_TIMEOUT_MS=10000
 ```
 
-Status chỉ có `CONFIRMED | CANCELLED`.
+Restart Vite sau khi đổi env. Không đặt JWT secret, internal service key, database URL/password hoặc token riêng tư vào `VITE_*`. Real mode không fallback sang mock khi lỗi.
 
-### Admin
+Vitest luôn ép mock mode cho facade mặc định để không vô tình gọi service thật từ `.env` của developer. HTTP adapter real mode được test bằng mocked fetch theo response `{data,meta}` thật.
 
-- `POST /api/v1/admin/rooms`
-- `PATCH /api/v1/admin/rooms/:id`
-- `GET /api/v1/admin/bookings`
-- `POST /api/v1/admin/bookings/:id/cancel`
-- `GET /api/v1/admin/outbox`
-- `POST /api/v1/admin/outbox/retry`
+## Chạy kiểm tra
 
-Backend **chưa có** `GET /api/v1/admin/rooms`. Sau khi room bị `active=false`, public list cũng ẩn room đó, nên admin frontend không thể tải lại inventory đầy đủ bằng API thật.
-
-## Notification service
-
-| Endpoint hiện tại | Ghi chú |
-| --- | --- |
-| `GET /api/v1/notifications` | Chỉ trả notification của `sub` trong JWT. |
-| `PATCH /api/v1/notifications/:id/read` | Không cần body; backend lọc theo cả `id` và `user_id`. |
-| `POST /internal/v1/events` | Dùng `X-Service-Key`; không gọi từ browser. |
-
-Notification shape:
-
-```text
-id, event_id, user_id, type, payload, read_at, created_at
+```powershell
+npm ci
+npm run test:run
+npm run build
+git diff --check
 ```
 
-Frontend suy ra `read = read_at !== null` và lấy `title/message` từ payload nếu cần. Backend chưa có `read-all`; HTTP adapter thử endpoint tương lai rồi fallback sang gọi `markRead` cho từng thông báo khi nhận `404/405`.
+Checklist real mode thủ công chỉ nên chạy với database test riêng:
 
-Event type hiện có `BOOKING_CREATED | BOOKING_CANCELLED`.
+1. Register → login → reload → `/users/me` khôi phục session.
+2. Search/filter/page → detail → unavailable dates/alternatives.
+3. Checkout → result → reload booking ID → My Bookings.
+4. Cancel hợp lệ/quá hạn → Notifications → mark-read/mark-all.
+5. Admin Rooms → Bookings → Users → Outbox.
 
-## Mapping HTTP adapter của frontend
+Không chạy migration/seed hoặc thao tác ghi trên Neon dùng chung để “sửa” frontend test.
 
-| Facade UI | Endpoint giả định/hiện tại | Trạng thái |
-| --- | --- | --- |
-| `identity.login` | `POST /api/v1/auth/login`, rồi `GET /api/v1/users/me` | Phù hợp contract hiện tại. |
-| `identity.register` | `POST /api/v1/auth/register`, rồi login | Phù hợp field hiện tại; phone không gửi. |
-| `rooms.search` | `GET /api/v1/rooms` với filter khách sạn | Endpoint tồn tại, nhưng backend bỏ qua/không hỗ trợ filter khoảng ngày, giá, loại. |
-| `rooms.getById` | `GET /api/v1/rooms/:id` | Endpoint tồn tại, thiếu field hiển thị khách sạn. |
-| `rooms.adminList` | `GET /api/v1/admin/rooms` | Backend chưa có. |
-| `rooms.create/update/toggleBookable` | Admin room endpoints | Endpoint có nhưng DTO chỉ hỗ trợ `name`, `capacity`, `equipment`, `active`. |
-| `bookings.create` | `POST /api/v1/bookings` | **Không tương thích**: frontend cần check-in/out/guests, backend cần date/slot. |
-| `bookings.mine` | `GET /api/v1/bookings/me` | Endpoint có, response thiếu kỳ lưu trú/giá. |
-| `bookings.getById` | `GET /api/v1/bookings/:id` | Backend chưa có public detail endpoint. |
-| `bookings.adminList/cancel` | Admin booking endpoints | Endpoint có, DTO/shape vẫn là booking theo slot. |
-| `notifications.mine/markRead` | Notification endpoints hiện tại | Có thể map được. |
-| `notifications.markAllRead` | `PATCH /api/v1/notifications/read-all` | Backend chưa có; adapter có fallback từng item. |
+## Chức năng để sau
 
-## Contract cần thống nhất với nhóm backend
-
-Ưu tiên theo thứ tự:
-
-1. `Room`: thêm `room_number`, `type`, `price_per_night`, `capacity`, `size`, `bed`, `view`, `description`, `amenities`, `images`, `is_bookable`.
-2. Availability theo khoảng `[check_in_date, check_out_date)` và `guests`, trả danh sách phòng phù hợp.
-3. `POST /bookings`: nhận room, check-in/out, guests, special requests và `Idempotency-Key`; backend tự kiểm tra overlap trong transaction.
-4. Booking response: `id`, code, dates, guests, nights, nightly rate snapshot, total price authoritative, status, nested/snapshot room.
-5. Quy tắc hủy: thời hạn, actor, reason, trạng thái chuyển đổi và error code rõ ràng.
-6. `GET /api/v1/bookings/:id` có ownership; `GET /api/v1/admin/rooms` gồm cả room ngừng nhận đặt.
-7. Pagination/filter thống nhất cho room, booking, user, notification.
-8. Quyết định endpoint mark-all notification hoặc giữ fallback client.
-9. CORS allowlist cho production origin và preview origins của Cloudflare Pages.
-
-Chỉ sau khi các mục 1–5 có contract/version rõ ràng mới nên đổi `VITE_USE_MOCK_API=false` cho demo booking khách sạn.
-
-## Bảo mật và giới hạn đã biết
-
-- Frontend route guard chỉ cải thiện UX; backend phải kiểm tra JWT/role/ownership trên mọi endpoint.
-- Access token real mode chỉ giữ trong memory. Reload sẽ yêu cầu login lại cho tới khi backend có refresh-token an toàn.
-- Không đặt service key hoặc JWT secret trong biến `VITE_*`.
-- Browser không được gọi `/internal/v1/*`.
-- Không retry mù `POST /bookings`; khi người dùng thử lại cùng lần xác nhận, giữ nguyên idempotency key.
-- Timeout/network error không đồng nghĩa booking thất bại hay thành công; UI nói rõ trạng thái chưa được xác nhận.
-
-## Vị trí contract đã đối chiếu trong backend
-
-- `services/identity-service/src/routes/index.js`
-- `services/identity-service/src/services/identity-service.js`
-- `services/identity-service/src/repositories/user-repository.js`
-- `services/identity-service/src/middleware/auth.js`
-- `services/booking-service/src/routes/index.js`
-- `services/booking-service/src/controllers/booking-controller.js`
-- `services/booking-service/src/repositories/booking-repository.js`
-- `services/booking-service/db/migrations/001_create_booking_schema.sql`
-- `services/notification-service/src/routes/index.js`
-- `docs/api-contract.md`
-- `compose.yaml`
+- Payment/refund.
+- Upload ảnh.
+- Profile/phone/special requests.
+- Refresh token/reset password.
+- Admin list đầy đủ gồm phòng inactive.
+- Thống kê tổng hệ thống hoặc doanh thu thực thu.
+- Hai filter admin booking `room_id/user_id` sau khi backend sửa mismatch.

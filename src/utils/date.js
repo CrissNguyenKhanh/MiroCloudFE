@@ -1,10 +1,17 @@
 const DAY_IN_MS = 24 * 60 * 60 * 1000
-
-const pad = (value) => String(value).padStart(2, '0')
+const HOTEL_TIME_ZONE = 'Asia/Ho_Chi_Minh'
+const DEFAULT_MAX_STAY_NIGHTS = 30
+const DEFAULT_MAX_GUESTS = 20
 
 export function todayISO() {
-  const now = new Date()
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: HOTEL_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date())
+  const datePart = (type) => parts.find((part) => part.type === type)?.value
+  return `${datePart('year')}-${datePart('month')}-${datePart('day')}`
 }
 
 export function addDays(dateValue, amount) {
@@ -52,7 +59,8 @@ export function validateStay({
   checkIn,
   checkOut,
   guests,
-  maxGuests,
+  maxGuests = DEFAULT_MAX_GUESTS,
+  maxNights = DEFAULT_MAX_STAY_NIGHTS,
   minDate = todayISO(),
 } = {}) {
   const errors = {}
@@ -70,15 +78,44 @@ export function validateStay({
     errors.checkOut = 'Vui lòng chọn ngày trả phòng hợp lệ.'
   } else if (parsedCheckIn && parsedCheckOut <= parsedCheckIn) {
     errors.checkOut = 'Ngày trả phòng phải sau ngày nhận phòng.'
+  } else if (
+    parsedCheckIn &&
+    Number.isFinite(maxNights) &&
+    calculateNights(checkIn, checkOut) > maxNights
+  ) {
+    errors.checkOut = `Mỗi lần đặt phòng tối đa ${maxNights} đêm.`
   }
 
   if (!Number.isInteger(guestCount) || guestCount < 1) {
     errors.guests = 'Số khách phải là số nguyên dương.'
-  } else if (maxGuests && guestCount > maxGuests) {
+  } else if (Number.isFinite(maxGuests) && guestCount > maxGuests) {
     errors.guests = `Phòng này phù hợp tối đa ${maxGuests} khách.`
   }
 
   return errors
+}
+
+export function customerCancellationDeadline(checkInDate) {
+  const parsed = parseISODate(checkInDate)
+  if (!parsed) return null
+
+  // Asia/Ho_Chi_Minh is UTC+07:00 year-round. Check-in starts at 14:00,
+  // and customers may cancel through the instant exactly 24 hours before it.
+  const checkInAt = Date.UTC(
+    parsed.getUTCFullYear(),
+    parsed.getUTCMonth(),
+    parsed.getUTCDate(),
+    7,
+  )
+  return new Date(checkInAt - DAY_IN_MS)
+}
+
+export function canCustomerCancel(booking, now = new Date()) {
+  if (typeof booking?.canCancel === 'boolean') return booking.canCancel
+  const status = String(booking?.status ?? '').toLowerCase()
+  if (!['pending', 'confirmed'].includes(status)) return false
+  const deadline = customerCancellationDeadline(booking?.checkInDate)
+  return Boolean(deadline) && now.getTime() <= deadline.getTime()
 }
 
 export function formatCurrency(value) {

@@ -4,13 +4,18 @@ import { useNavigate } from 'react-router-dom'
 import { getDefaultStayRange, todayISO, validateStay } from '../../utils/date'
 import { FieldError } from '../common/States'
 
+function readGuests(value) {
+  if (value === undefined || value === null || value === '') return 2
+  return Number(value)
+}
+
 export default function SearchForm({ initialValues, compact = false, onSearch }) {
   const navigate = useNavigate()
   const defaults = getDefaultStayRange()
   const [values, setValues] = useState({
     checkIn: initialValues?.checkIn || defaults.checkIn,
     checkOut: initialValues?.checkOut || defaults.checkOut,
-    guests: Number(initialValues?.guests) || 2,
+    guests: readGuests(initialValues?.guests),
   })
   const [errors, setErrors] = useState({})
 
@@ -19,7 +24,7 @@ export default function SearchForm({ initialValues, compact = false, onSearch })
     setValues({
       checkIn: initialValues.checkIn || defaults.checkIn,
       checkOut: initialValues.checkOut || defaults.checkOut,
-      guests: Number(initialValues.guests) || 2,
+      guests: readGuests(initialValues.guests),
     })
   }, [initialValues?.checkIn, initialValues?.checkOut, initialValues?.guests])
 
@@ -91,7 +96,7 @@ export default function SearchForm({ initialValues, compact = false, onSearch })
           aria-invalid={Boolean(errors.guests)}
           aria-describedby={errors.guests ? 'guests-error' : undefined}
         >
-          {[1, 2, 3, 4, 5, 6].map((count) => <option key={count} value={count}>{count} khách</option>)}
+          {Array.from({ length: 20 }, (_, index) => index + 1).map((count) => <option key={count} value={count}>{count} khách</option>)}
         </select>
         <FieldError id="guests-error">{errors.guests}</FieldError>
       </div>

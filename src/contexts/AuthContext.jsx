@@ -4,9 +4,11 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { api, isMockMode } from "../api";
+import { getErrorMessage } from "../api/errors";
 import { clearApiSession, getApiSession, setApiSession } from "../api/session";
 
 const AuthContext = createContext(null);
@@ -23,11 +25,17 @@ function readSavedMockUser() {
 }
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(() => readSavedMockUser());
+  const [user, setUser] = useState(() => {
+    const savedUser = readSavedMockUser();
+    if (savedUser) setApiSession({ user: savedUser });
+    return savedUser;
+  });
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [isInitializing, setIsInitializing] = useState(
     () => !isMockMode && Boolean(getApiSession().accessToken),
   );
+  const [restoreError, setRestoreError] = useState("");
+  const restoreRequestRef = useRef(0);
 
   useEffect(() => {
     if (user && isMockMode) setApiSession({ user });
@@ -44,6 +52,7 @@ export function AuthProvider({ children }) {
   const login = useCallback(
     async (credentials) => {
       setIsAuthenticating(true);
+      setRestoreError("");
       try {
         return saveSession(await api.identity.login(credentials));
       } finally {
@@ -57,7 +66,11 @@ export function AuthProvider({ children }) {
     async (profile) => {
       setIsAuthenticating(true);
       try {
-        return saveSession(await api.identity.register(profile));
+        const result = await api.identity.register(profile);
+        if (result?.accessToken && result?.user) {
+          return { ...result, user: saveSession(result) };
+        }
+        return result;
       } finally {
         setIsAuthenticating(false);
       }
@@ -66,9 +79,46 @@ export function AuthProvider({ children }) {
   );
 
   const logout = useCallback(() => {
+    restoreRequestRef.current += 1;
     clearApiSession();
     setUser(null);
+    setIsInitializing(false);
+    setRestoreError("");
     localStorage.removeItem(MOCK_SESSION_KEY);
+  }, []);
+
+  const restoreSession = useCallback(async () => {
+    const requestId = ++restoreRequestRef.current;
+    if (isMockMode) {
+      setIsInitializing(false);
+      return;
+    }
+    const { accessToken } = getApiSession();
+    if (!accessToken) {
+      setIsInitializing(false);
+      setRestoreError("");
+      return;
+    }
+
+    setIsInitializing(true);
+    setRestoreError("");
+    try {
+      const restoredUser = await api.identity.me();
+      if (requestId !== restoreRequestRef.current) return;
+      setApiSession({ accessToken, user: restoredUser });
+      setUser(restoredUser);
+    } catch (error) {
+      if (requestId !== restoreRequestRef.current) return;
+      if (error?.status === 401 || error?.status === 403) {
+        clearApiSession();
+        setUser(null);
+        setRestoreError("");
+      } else {
+        setRestoreError(getErrorMessage(error, "Không thể xác minh phiên đăng nhập."));
+      }
+    } finally {
+      if (requestId === restoreRequestRef.current) setIsInitializing(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -85,41 +135,22 @@ export function AuthProvider({ children }) {
       isAdmin: user?.role === "admin" || user?.role === "ADMIN",
       isAuthenticating,
       isInitializing,
+      restoreError,
+      retrySession: restoreSession,
       login,
       register,
       logout,
     }),
-    [isAuthenticating, login, logout, register, user],
+    [isAuthenticating, isInitializing, login, logout, register, restoreError, restoreSession, user],
   );
 
   useEffect(() => {
-    if (isMockMode) return undefined;
-    const { accessToken } = getApiSession();
-    if (!accessToken) {
-      setIsInitializing(false);
-      return undefined;
-    }
-
-    let cancelled = false;
-    api.identity
-      .me()
-      .then((restoredUser) => {
-        if (cancelled) return;
-        setApiSession({ accessToken, user: restoredUser });
-        setUser(restoredUser); // <-- user có lại, isAuthenticated = true
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        if (error?.status === 401 || error?.status === 403) clearApiSession();
-      })
-      .finally(() => {
-        if (!cancelled) setIsInitializing(false);
-      });
+    restoreSession();
 
     return () => {
-      cancelled = true;
+      restoreRequestRef.current += 1;
     };
-  }, []);
+  }, [restoreSession]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

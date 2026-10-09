@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import {
   addDays,
   calculateNights,
+  canCustomerCancel,
+  customerCancellationDeadline,
   parseISODate,
   rangesOverlap,
   todayISO,
@@ -63,5 +65,27 @@ describe('date utilities', () => {
     expect(rangesOverlap('2028-06-10', '2028-06-13', '2028-06-12', '2028-06-14')).toBe(true)
     expect(rangesOverlap('2028-06-10', '2028-06-15', '2028-06-11', '2028-06-12')).toBe(true)
     expect(rangesOverlap('invalid', '2028-06-15', '2028-06-11', '2028-06-12')).toBe(false)
+  })
+
+  it('enforces the backend stay limits', () => {
+    expect(
+      validateStay({
+        checkIn: '2028-06-01',
+        checkOut: '2028-07-02',
+        guests: 21,
+        minDate: '2028-01-01',
+      }),
+    ).toMatchObject({ checkOut: expect.any(String), guests: expect.any(String) })
+  })
+
+  it('uses the 24-hour cancellation cutoff before 14:00 Vietnam time', () => {
+    expect(customerCancellationDeadline('2028-06-10')?.toISOString()).toBe(
+      '2028-06-09T07:00:00.000Z',
+    )
+
+    const booking = { status: 'confirmed', checkInDate: '2028-06-10' }
+    expect(canCustomerCancel(booking, new Date('2028-06-09T07:00:00.000Z'))).toBe(true)
+    expect(canCustomerCancel(booking, new Date('2028-06-09T07:00:00.001Z'))).toBe(false)
+    expect(canCustomerCancel({ ...booking, canCancel: false }, new Date('2028-01-01'))).toBe(false)
   })
 })

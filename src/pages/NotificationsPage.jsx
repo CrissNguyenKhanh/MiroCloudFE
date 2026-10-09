@@ -19,6 +19,7 @@ function formatTimestamp(value) {
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: 'Asia/Ho_Chi_Minh',
   }).format(new Date(value))
 }
 
@@ -27,12 +28,14 @@ export default function NotificationsPage() {
   const [status, setStatus] = useState('loading')
   const [error, setError] = useState('')
   const [updating, setUpdating] = useState(false)
+  const [pendingIds, setPendingIds] = useState(() => new Set())
   const { showToast } = useToast()
 
   const loadNotifications = useCallback(async () => {
     setStatus('loading')
     try {
-      setNotifications(await api.notifications.mine())
+      const result = await api.notifications.mine()
+      setNotifications(result.data)
       setStatus('success')
     } catch (loadError) {
       setError(getErrorMessage(loadError))
@@ -45,21 +48,35 @@ export default function NotificationsPage() {
   }, [loadNotifications])
 
   const markRead = async (id) => {
+    if (pendingIds.has(id)) return
+    setPendingIds((current) => new Set(current).add(id))
     try {
       const updated = await api.notifications.markRead(id)
       setNotifications((current) => current.map((item) => item.id === id ? updated : item))
     } catch (updateError) {
       showToast(getErrorMessage(updateError), 'error')
+    } finally {
+      setPendingIds((current) => {
+        const next = new Set(current)
+        next.delete(id)
+        return next
+      })
     }
   }
 
   const markAllRead = async () => {
     setUpdating(true)
     try {
-      setNotifications(await api.notifications.markAllRead())
-      showToast('Đã đánh dấu tất cả thông báo là đã đọc.')
+      const result = await api.notifications.markAllRead()
+      setNotifications(result.data)
+      if (result.failedCount > 0) {
+        showToast(`Đã cập nhật ${result.updatedCount}/${result.attemptedCount} thông báo; ${result.failedCount} thông báo chưa hoàn tất.`, 'error')
+      } else {
+        showToast('Đã đánh dấu tất cả thông báo là đã đọc.')
+      }
     } catch (updateError) {
       showToast(getErrorMessage(updateError), 'error')
+      await loadNotifications()
     } finally {
       setUpdating(false)
     }
@@ -98,6 +115,7 @@ export default function NotificationsPage() {
                     className={`notification-item${notification.read ? '' : ' notification-item--unread'}`}
                     key={notification.id}
                     onClick={() => !notification.read && markRead(notification.id)}
+                    disabled={pendingIds.has(notification.id)}
                     aria-label={`${notification.title}${notification.read ? ', đã đọc' : ', chưa đọc. Nhấn để đánh dấu đã đọc'}`}
                   >
                     <span className="notification-item__icon"><Icon /></span>

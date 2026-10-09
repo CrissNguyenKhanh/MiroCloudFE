@@ -1,10 +1,24 @@
-import { asCollection, encodeId, normalizeNotification, toApi } from './mapping'
+import { asCollection, encodeId, normalizeNotification } from './mapping'
+
+function mapNotificationsCollection(payload) {
+  const collection = asCollection(payload, ['notifications'])
+  return { ...collection, data: collection.data.map(normalizeNotification) }
+}
+
+function failureDetails(notification, error) {
+  return {
+    id: notification.id,
+    code: error?.code ?? 'MARK_READ_FAILED',
+    status: error?.status,
+    message: error?.message ?? 'Không thể đánh dấu thông báo đã đọc.',
+  }
+}
 
 export function createNotificationsHttpApi(request) {
   const notificationsApi = {
-    async mine(filters = {}) {
-      const response = await request('/api/v1/notifications', { query: toApi(filters) })
-      return asCollection(response, ['notifications']).map(normalizeNotification)
+    async mine() {
+      const response = await request('/api/v1/notifications')
+      return mapNotificationsCollection(response)
     },
 
     async markRead(id) {
@@ -15,36 +29,27 @@ export function createNotificationsHttpApi(request) {
     },
 
     async markAllRead() {
-      try {
-        const response = await request('/api/v1/notifications/read-all', {
-          method: 'PATCH',
-        })
-        if (response === null || response === undefined) return notificationsApi.mine()
-        try {
-          return asCollection(response, [
-            'notifications',
-            'updated',
-            'updatedNotifications',
-          ]).map(normalizeNotification)
-        } catch (error) {
-          if (error?.code !== 'INVALID_RESPONSE') throw error
-          return notificationsApi.mine()
-        }
-      } catch (error) {
-        if (error?.status !== 404 && error?.status !== 405) throw error
+      const current = await notificationsApi.mine()
+      const unread = current.data.filter((notification) => !notification.read)
+      const settled = await Promise.allSettled(
+        unread.map((notification) => notificationsApi.markRead(notification.id)),
+      )
+      const failures = settled.flatMap((result, index) =>
+        result.status === 'rejected' ? [failureDetails(unread[index], result.reason)] : [],
+      )
+      const refreshed = unread.length ? await notificationsApi.mine() : current
 
-        // Compatibility path for the verified backend, which currently only
-        // exposes the per-notification read endpoint.
-        const notifications = await notificationsApi.mine()
-        await Promise.all(
-          notifications
-            .filter((notification) => !notification.read)
-            .map((notification) => notificationsApi.markRead(notification.id)),
-        )
-        return notificationsApi.mine()
+      return {
+        ...refreshed,
+        attemptedCount: unread.length,
+        updatedCount: unread.length - failures.length,
+        failedCount: failures.length,
+        failures,
       }
     },
   }
 
   return notificationsApi
 }
+
+export { mapNotificationsCollection }

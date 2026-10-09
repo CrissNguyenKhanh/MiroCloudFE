@@ -82,7 +82,22 @@ export function createHttpClient({ baseUrl, timeoutMs = 10_000 }) {
         })
       }
 
-      return payload?.data ?? payload
+      // Collection endpoints return `{ data, meta }`. Keep that envelope so
+      // pagination is not discarded, while retaining the historical unwrapped
+      // shape for entity/auth responses (`{ data: entity }`).
+      if (
+        payload !== null &&
+        typeof payload === 'object' &&
+        !Array.isArray(payload) &&
+        Object.prototype.hasOwnProperty.call(payload, 'data')
+      ) {
+        if (Object.prototype.hasOwnProperty.call(payload, 'meta')) {
+          return { data: payload.data, meta: payload.meta }
+        }
+        return payload.data
+      }
+
+      return payload
     } catch (error) {
       if (error instanceof ApiError) throw error
       if (error?.name === 'AbortError') {

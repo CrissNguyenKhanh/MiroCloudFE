@@ -13,13 +13,13 @@ const demoAccounts = {
 }
 
 export default function LoginPage() {
-  const [form, setForm] = useState({ email: '', password: '' })
+  const location = useLocation()
+  const [form, setForm] = useState({ email: location.state?.registeredEmail ?? '', password: '' })
   const [errors, setErrors] = useState({})
   const [submitError, setSubmitError] = useState('')
   const [submittingFromPage, setSubmittingFromPage] = useState(false)
   const { login, isAuthenticated, isAuthenticating } = useAuth()
   const { showToast } = useToast()
-  const location = useLocation()
   const navigate = useNavigate()
 
   if (isAuthenticated && !submittingFromPage) return <Navigate to="/" replace />
@@ -81,6 +81,10 @@ export default function LoginPage() {
               <button type="button" onClick={() => fillDemo('admin')}><ShieldCheck size={16} /> Dùng tài khoản admin</button>
             </div>
           </div>
+        )}
+
+        {location.state?.registrationSucceeded && (
+          <div className="form-alert" role="status">Tài khoản đã được tạo thành công. Hãy đăng nhập bằng email bên dưới.</div>
         )}
 
         <form className="stack-form" onSubmit={submit} noValidate>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Edit3, Plus, Search, ToggleLeft, ToggleRight, X } from 'lucide-react'
-import { api } from '../../api'
+import { api, isMockMode } from '../../api'
 import { getErrorMessage } from '../../api/errors'
 import { ROOM_TYPES } from '../../data/mockData'
 import { ErrorState, FieldError, LoadingState } from '../../components/common/States'
@@ -27,7 +27,8 @@ export default function AdminRoomsPage() {
   const loadRooms = useCallback(async () => {
     setStatus('loading')
     try {
-      setRooms(await api.rooms.adminList())
+      const result = await api.rooms.adminList()
+      setRooms(result.data)
       setStatus('success')
     } catch (loadError) {
       setError(getErrorMessage(loadError))
@@ -49,9 +50,10 @@ export default function AdminRoomsPage() {
   const openEdit = (room) => {
     setEditingId(room.id)
     setForm({
-      name: room.name, roomNumber: room.roomNumber, type: room.type, pricePerNight: room.pricePerNight,
-      capacity: room.capacity, size: room.size, floor: room.floor, bed: room.bed, view: room.view,
-      description: room.description, amenitiesText: room.amenities.join(', '),
+      name: room.name ?? '', roomNumber: room.roomNumber ?? '', type: room.type ?? 'deluxe', pricePerNight: room.pricePerNight ?? '',
+      capacity: room.capacity ?? '', size: room.size ?? '', floor: room.floor ?? '', bed: room.bed ?? '', view: room.view ?? '',
+      description: room.description ?? '', amenitiesText: (room.amenities ?? []).join(', '),
+      featured: Boolean(room.featured), active: room.isBookable !== false, palette: room.palette ?? [],
     })
     setFormErrors({})
     setFormOpen(true)
@@ -59,7 +61,7 @@ export default function AdminRoomsPage() {
 
   const update = (event) => {
     const { name, value, type } = event.target
-    setForm((current) => ({ ...current, [name]: type === 'number' ? Number(value) : value }))
+    setForm((current) => ({ ...current, [name]: type === 'number' ? (value === '' ? '' : Number(value)) : value }))
     setFormErrors((current) => ({ ...current, [name]: undefined }))
   }
 
@@ -75,10 +77,21 @@ export default function AdminRoomsPage() {
 
     setSaving(true)
     const payload = {
-      ...form,
+      name: form.name,
+      roomNumber: form.roomNumber,
+      type: form.type,
+      pricePerNight: form.pricePerNight,
+      capacity: form.capacity,
+      size: form.size === '' ? undefined : form.size,
+      floor: form.floor === '' ? undefined : form.floor,
+      bed: form.bed,
+      view: form.view,
+      description: form.description,
+      featured: Boolean(form.featured),
+      active: form.active !== false,
+      palette: form.palette ?? [],
       amenities: form.amenitiesText.split(',').map((item) => item.trim()).filter(Boolean),
     }
-    delete payload.amenitiesText
     try {
       if (editingId) {
         const updated = await api.rooms.update(editingId, payload)
@@ -101,8 +114,14 @@ export default function AdminRoomsPage() {
   const toggle = async (room) => {
     try {
       const updated = await api.rooms.toggleBookable(room.id, !room.isBookable)
-      setRooms((current) => current.map((item) => item.id === room.id ? updated : item))
-      showToast(updated.isBookable ? 'Phòng đã nhận đặt trở lại.' : 'Phòng đã ngừng nhận đặt.')
+      setRooms((current) => !isMockMode && !updated.isBookable
+        ? current.filter((item) => item.id !== room.id)
+        : current.map((item) => item.id === room.id ? updated : item))
+      showToast(updated.isBookable
+        ? 'Phòng đã nhận đặt trở lại.'
+        : isMockMode
+          ? 'Phòng đã ngừng nhận đặt.'
+          : 'Phòng đã ngừng nhận đặt và không còn trong danh sách active. Backend chưa có API để liệt kê/khôi phục phòng inactive.')
     } catch (toggleError) {
       showToast(getErrorMessage(toggleError), 'error')
     }
@@ -119,6 +138,10 @@ export default function AdminRoomsPage() {
         <label className="search-input"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm tên hoặc số phòng…" aria-label="Tìm phòng" /></label>
         <span>{filtered.length} / {rooms.length} phòng</span>
       </div>
+
+      {!isMockMode && (
+        <p className="inline-notice inline-notice--warning">Danh sách này chỉ gồm phòng active từ <code>GET /api/v1/rooms</code>. Backend chưa có API admin để xem hoặc khôi phục toàn bộ phòng inactive sau khi tải lại.</p>
+      )}
 
       {status === 'loading' && <LoadingState label="Đang tải danh sách phòng…" />}
       {status === 'error' && <ErrorState message={error} onRetry={loadRooms} />}
@@ -154,7 +177,7 @@ export default function AdminRoomsPage() {
                 <label>Số phòng<input name="roomNumber" value={form.roomNumber} onChange={update} /><FieldError>{formErrors.roomNumber}</FieldError></label>
                 <label>Hạng phòng<select name="type" value={form.type} onChange={update}>{ROOM_TYPES.map((type) => <option value={type.value} key={type.value}>{type.label}</option>)}</select></label>
                 <label>Giá mỗi đêm<input type="number" min="1" step="50000" name="pricePerNight" value={form.pricePerNight} onChange={update} /><FieldError>{formErrors.pricePerNight}</FieldError></label>
-                <label>Sức chứa<input type="number" min="1" max="12" name="capacity" value={form.capacity} onChange={update} /><FieldError>{formErrors.capacity}</FieldError></label>
+                <label>Sức chứa<input type="number" min="1" max="1000" name="capacity" value={form.capacity} onChange={update} /><FieldError>{formErrors.capacity}</FieldError></label>
                 <label>Diện tích (m²)<input type="number" min="1" name="size" value={form.size} onChange={update} /></label>
                 <label>Tầng<input type="number" min="1" name="floor" value={form.floor} onChange={update} /></label>
                 <label>Loại giường<input name="bed" value={form.bed} onChange={update} /></label>
