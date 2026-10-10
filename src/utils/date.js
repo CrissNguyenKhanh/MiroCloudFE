@@ -113,7 +113,7 @@ export function customerCancellationDeadline(checkInDate) {
 export function canCustomerCancel(booking, now = new Date()) {
   if (typeof booking?.canCancel === 'boolean') return booking.canCancel
   const status = String(booking?.status ?? '').toLowerCase()
-  if (!['pending', 'confirmed'].includes(status)) return false
+  if (status !== 'confirmed') return false
   const deadline = customerCancellationDeadline(booking?.checkInDate)
   return Boolean(deadline) && now.getTime() <= deadline.getTime()
 }

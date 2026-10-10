@@ -84,8 +84,11 @@ describe('date utilities', () => {
     )
 
     const booking = { status: 'confirmed', checkInDate: '2028-06-10' }
+    expect(canCustomerCancel(booking, new Date('2028-06-09T06:59:59.999Z'))).toBe(true)
     expect(canCustomerCancel(booking, new Date('2028-06-09T07:00:00.000Z'))).toBe(true)
     expect(canCustomerCancel(booking, new Date('2028-06-09T07:00:00.001Z'))).toBe(false)
     expect(canCustomerCancel({ ...booking, canCancel: false }, new Date('2028-01-01'))).toBe(false)
+    expect(canCustomerCancel({ ...booking, status: 'pending' }, new Date('2028-01-01'))).toBe(false)
+    expect(canCustomerCancel({ ...booking, status: 'cancelled' }, new Date('2028-01-01'))).toBe(false)
   })
 })

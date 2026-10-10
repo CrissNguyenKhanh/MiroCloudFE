@@ -127,6 +127,7 @@ export default function MyBookingsPage() {
                 {bookings.map((booking) => {
                   const roomName = booking.room?.name || booking.roomName || `Phòng ${booking.roomId}`
                   const roomNumber = booking.room?.roomNumber || booking.roomNumber
+                  const cancellationExpired = booking.status === 'confirmed' && !booking.canCancel
                   return (
                     <article className="booking-card" key={booking.id}>
                       <RoomVisual room={booking.room || { name: roomName, type: booking.roomType }} />
@@ -145,6 +146,12 @@ export default function MyBookingsPage() {
                           <span><small>Tổng đã xác nhận</small><strong>{formatCurrency(booking.totalPrice)}</strong></span>
                         </div>
                         {booking.cancellationReason && <p className="booking-card__cancel-note"><CircleX size={16} /> Lý do hủy: {booking.cancellationReason}</p>}
+                        {cancellationExpired && (
+                          <p className="inline-notice inline-notice--warning">
+                            <strong>Đã quá hạn hủy đặt phòng.</strong>{' '}
+                            Chỉ được hủy trước 14:00 ngày trước ngày nhận phòng.
+                          </p>
+                        )}
                         <div className="booking-card__actions">
                           <Link className="text-link" to={`/rooms/${booking.roomId}`}>Xem phòng</Link>
                           {booking.canCancel && (
