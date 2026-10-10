@@ -102,6 +102,50 @@ describe('verified backend HTTP contracts', () => {
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ active: false })
   })
 
+  it('loads the complete admin room inventory from the admin endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      data: [
+        { id: 'room-1', room_number: '101', active: true },
+        { id: 'room-2', room_number: '102', active: false },
+      ],
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await createApi().rooms.adminList()
+
+    expect(new URL(fetchMock.mock.calls[0][0]).pathname).toBe('/api/v1/admin/rooms')
+    expect(result.data).toEqual([
+      expect.objectContaining({ id: 'room-1', isBookable: true }),
+      expect.objectContaining({ id: 'room-2', isBookable: false }),
+    ])
+  })
+
+  it('maps admin booking filters to the backend snake_case query contract', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      data: [],
+      meta: { page: 2, limit: 20, total: 0 },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await createApi().bookings.adminList({
+      status: 'confirmed',
+      roomId: '11111111-1111-4111-8111-111111111111',
+      userId: '22222222-2222-4222-8222-222222222222',
+      page: 2,
+      limit: 20,
+    })
+
+    const url = new URL(fetchMock.mock.calls[0][0])
+    expect(url.pathname).toBe('/api/v1/admin/bookings')
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      status: 'confirmed',
+      room_id: '11111111-1111-4111-8111-111111111111',
+      user_id: '22222222-2222-4222-8222-222222222222',
+      page: '2',
+      limit: '20',
+    })
+  })
+
   it('registers once when backend returns a user without a token', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
       data: { id: 'user-1', email: 'khanh@example.com', full_name: 'Khánh', role: 'CUSTOMER', status: 'ACTIVE' },

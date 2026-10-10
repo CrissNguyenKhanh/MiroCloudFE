@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Edit3, Plus, Search, ToggleLeft, ToggleRight, X } from 'lucide-react'
-import { api, isMockMode } from '../../api'
+import { api } from '../../api'
 import { getErrorMessage } from '../../api/errors'
 import { ROOM_TYPES } from '../../data/mockData'
 import { ErrorState, FieldError, LoadingState } from '../../components/common/States'
@@ -114,14 +114,10 @@ export default function AdminRoomsPage() {
   const toggle = async (room) => {
     try {
       const updated = await api.rooms.toggleBookable(room.id, !room.isBookable)
-      setRooms((current) => !isMockMode && !updated.isBookable
-        ? current.filter((item) => item.id !== room.id)
-        : current.map((item) => item.id === room.id ? updated : item))
+      setRooms((current) => current.map((item) => item.id === room.id ? updated : item))
       showToast(updated.isBookable
         ? 'Phòng đã nhận đặt trở lại.'
-        : isMockMode
-          ? 'Phòng đã ngừng nhận đặt.'
-          : 'Phòng đã ngừng nhận đặt và không còn trong danh sách active. Backend chưa có API để liệt kê/khôi phục phòng inactive.')
+        : 'Phòng đã tạm ngừng kinh doanh. Các booking theo ngày không làm thay đổi trạng thái này.')
     } catch (toggleError) {
       showToast(getErrorMessage(toggleError), 'error')
     }
@@ -138,10 +134,6 @@ export default function AdminRoomsPage() {
         <label className="search-input"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm tên hoặc số phòng…" aria-label="Tìm phòng" /></label>
         <span>{filtered.length} / {rooms.length} phòng</span>
       </div>
-
-      {!isMockMode && (
-        <p className="inline-notice inline-notice--warning">Danh sách này chỉ gồm phòng active từ <code>GET /api/v1/rooms</code>. Backend chưa có API admin để xem hoặc khôi phục toàn bộ phòng inactive sau khi tải lại.</p>
-      )}
 
       {status === 'loading' && <LoadingState label="Đang tải danh sách phòng…" />}
       {status === 'error' && <ErrorState message={error} onRetry={loadRooms} />}

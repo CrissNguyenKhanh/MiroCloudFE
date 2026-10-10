@@ -112,10 +112,8 @@ export function createRoomsHttpApi(request) {
       return normalizeAlternatives(response)
     },
 
-    // There is no GET /api/v1/admin/rooms in the current backend. Keep the
-    // existing facade usable, but truthfully expose only its active-room list.
     async adminList() {
-      return listActive()
+      return mapRoomsCollection(await request('/api/v1/admin/rooms'))
     },
 
     async create(payload) {
