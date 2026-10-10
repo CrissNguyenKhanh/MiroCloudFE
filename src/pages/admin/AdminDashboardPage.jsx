@@ -16,7 +16,7 @@ export default function AdminDashboardPage() {
     setStatus('loading')
     try {
       const [rooms, bookings] = await Promise.all([
-        api.rooms.list(),
+        api.rooms.adminList(),
         api.bookings.adminList({ page: 1, limit: 20 }),
       ])
       setData({ rooms: rooms.data, bookings: bookings.data, bookingsMeta: bookings.meta })
@@ -38,7 +38,7 @@ export default function AdminDashboardPage() {
   return (
     <div className="admin-page">
       <header className="admin-page__header">
-        <div><span className="eyebrow">CloudStay operations</span><h1>Tổng quan</h1><p>Số liệu bên dưới chỉ phản ánh danh sách active và trang booking đang tải, không phải thống kê toàn hệ thống.</p></div>
+        <div><span className="eyebrow">CloudStay operations</span><h1>Tổng quan</h1><p>Số liệu phòng gồm cả phòng đang kinh doanh và tạm ngừng; booking chỉ phản ánh trang đang tải, không phải thống kê toàn hệ thống.</p></div>
         <span className="admin-mode-pill">{isMockMode ? 'Mock mode' : 'Real API'}</span>
       </header>
 
@@ -47,7 +47,7 @@ export default function AdminDashboardPage() {
       {status === 'success' && (
         <>
           <section className="metric-grid">
-            <article><span className="metric-icon"><BedDouble /></span><small>Phòng active</small><strong>{data.rooms.length}</strong><em>không gồm phòng inactive</em></article>
+            <article><span className="metric-icon"><BedDouble /></span><small>Tổng số phòng</small><strong>{data.rooms.length}</strong><em>{data.rooms.filter((room) => room.isBookable !== false).length} đang kinh doanh</em></article>
             <article><span className="metric-icon"><BookOpenCheck /></span><small>Booking trên trang 1</small><strong>{data.bookings.length}</strong><em>{Number.isFinite(Number(data.bookingsMeta?.total)) ? `${data.bookingsMeta.total} tổng từ API` : 'tối đa 20 dòng'}</em></article>
             <article><span className="metric-icon"><CalendarClock /></span><small>Trạng thái trên trang</small><strong>{activeBookings.length}</strong><em>xác nhận · {cancelledBookings.length} đã hủy</em></article>
             <article><span className="metric-icon"><CircleDollarSign /></span><small>Giá trị booking xác nhận</small><strong>{formatCurrency(pageBookingValue)}</strong><em>chỉ trang này, không phải doanh thu</em></article>

@@ -16,6 +16,12 @@ export function assertRealApiConfig() {
   if (!apiConfig.identityBaseUrl) {
     missing.push("VITE_IDENTITY_API_URL");
   }
+  if (!apiConfig.bookingBaseUrl) {
+    missing.push("VITE_BOOKING_API_URL");
+  }
+  if (!apiConfig.notificationBaseUrl) {
+    missing.push("VITE_NOTIFICATION_API_URL");
+  }
 
   if (missing.length) {
     throw new ApiError(`Thiếu cấu hình API: ${missing.join(", ")}.`, {

@@ -15,6 +15,9 @@ export default function AdminBookingsPage() {
   const [status, setStatus] = useState('loading')
   const [error, setError] = useState('')
   const [filter, setFilter] = useState('all')
+  const [roomId, setRoomId] = useState('')
+  const [userId, setUserId] = useState('')
+  const [filterDraft, setFilterDraft] = useState({ roomId: '', userId: '' })
   const [page, setPage] = useState(1)
   const [cancelTarget, setCancelTarget] = useState(null)
   const [reason, setReason] = useState('')
@@ -29,6 +32,8 @@ export default function AdminBookingsPage() {
     try {
       const result = await api.bookings.adminList({
         ...(filter === 'all' ? {} : { status: filter }),
+        ...(roomId ? { roomId } : {}),
+        ...(userId ? { userId } : {}),
         page,
         limit: PAGE_SIZE,
       })
@@ -41,7 +46,7 @@ export default function AdminBookingsPage() {
       setError(getErrorMessage(loadError))
       setStatus('error')
     }
-  }, [filter, page])
+  }, [filter, page, roomId, userId])
 
   useEffect(() => {
     loadBookings()
@@ -52,6 +57,20 @@ export default function AdminBookingsPage() {
 
   const changeFilter = (value) => {
     setFilter(value)
+    setPage(1)
+  }
+
+  const applyEntityFilters = (event) => {
+    event.preventDefault()
+    setRoomId(filterDraft.roomId.trim())
+    setUserId(filterDraft.userId.trim())
+    setPage(1)
+  }
+
+  const clearEntityFilters = () => {
+    setFilterDraft({ roomId: '', userId: '' })
+    setRoomId('')
+    setUserId('')
     setPage(1)
   }
 
@@ -91,7 +110,28 @@ export default function AdminBookingsPage() {
           <option value="cancelled">Đã hủy</option>
         </select>
       </div>
-      <p className="inline-notice inline-notice--warning">Backend hiện bỏ qua filter <code>room_id</code> và <code>user_id</code> do mismatch nội bộ, nên giao diện chỉ bật filter trạng thái đã được xác minh hoạt động.</p>
+      <form className="admin-toolbar admin-toolbar--bookings" onSubmit={applyEntityFilters}>
+        <label>
+          <span className="sr-only">Lọc theo Room ID</span>
+          <input
+            value={filterDraft.roomId}
+            onChange={(event) => setFilterDraft((current) => ({ ...current, roomId: event.target.value }))}
+            placeholder="Room UUID"
+            aria-label="Lọc theo Room ID"
+          />
+        </label>
+        <label>
+          <span className="sr-only">Lọc theo User ID</span>
+          <input
+            value={filterDraft.userId}
+            onChange={(event) => setFilterDraft((current) => ({ ...current, userId: event.target.value }))}
+            placeholder="User UUID"
+            aria-label="Lọc theo User ID"
+          />
+        </label>
+        <button className="button button--outline" type="submit">Áp dụng</button>
+        {(roomId || userId) && <button className="text-button" type="button" onClick={clearEntityFilters}>Xóa lọc ID</button>}
+      </form>
 
       {status === 'loading' && <LoadingState label="Đang tải booking…" />}
       {status === 'error' && <ErrorState message={error} onRetry={loadBookings} />}
