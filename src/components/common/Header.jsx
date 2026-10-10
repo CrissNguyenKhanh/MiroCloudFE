@@ -1,8 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Bell, ChevronDown, LogOut, Menu, ShieldCheck, UserRound, X } from 'lucide-react'
 import { NavLink, useNavigate } from 'react-router-dom'
+import { api } from '../../api'
 import { useAuth } from '../../contexts/AuthContext'
 import Brand from './Brand'
+
+const NOTIFICATION_POLL_INTERVAL_MS = 30_000
 
 const navItems = [
   { to: '/', label: 'Trang chủ', end: true },
@@ -14,8 +17,38 @@ const navItems = [
 export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
+  const [unreadCount, setUnreadCount] = useState(0)
   const { user, isAuthenticated, isAdmin, logout } = useAuth()
   const navigate = useNavigate()
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setUnreadCount(0)
+      return undefined
+    }
+
+    let active = true
+    setUnreadCount(0)
+
+    const refreshUnreadCount = async () => {
+      try {
+        const result = await api.notifications.mine()
+        if (active) {
+          setUnreadCount(result.data.filter((notification) => notification.read === false).length)
+        }
+      } catch {
+        // Header polling is best-effort. Keep the current count and avoid noisy toasts.
+      }
+    }
+
+    refreshUnreadCount()
+    const intervalId = window.setInterval(refreshUnreadCount, NOTIFICATION_POLL_INTERVAL_MS)
+
+    return () => {
+      active = false
+      window.clearInterval(intervalId)
+    }
+  }, [isAuthenticated, user?.id])
 
   const closeMenus = () => {
     setMenuOpen(false)
@@ -56,9 +89,20 @@ export default function Header() {
                 to={item.to}
                 end={item.end}
                 onClick={closeMenus}
-                className={({ isActive }) => (isActive ? 'nav-link nav-link--active' : 'nav-link')}
+                className={({ isActive }) => {
+                  const badgeClass = item.to === '/notifications' ? ' nav-link--with-badge' : ''
+                  return `${isActive ? 'nav-link nav-link--active' : 'nav-link'}${badgeClass}`
+                }}
               >
-                {item.label}
+                <span>{item.label}</span>
+                {item.to === '/notifications' && unreadCount > 0 && (
+                  <span
+                    className="notification-badge"
+                    aria-label={`${unreadCount} thông báo chưa đọc`}
+                  >
+                    {unreadCount}
+                  </span>
+                )}
               </NavLink>
             )
           })}

@@ -464,6 +464,26 @@ textarea:focus-visible {
   font-weight: 650;
 }
 
+.nav-link--with-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.notification-badge {
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--copper-500);
+  color: white;
+  font-size: .68rem;
+  font-weight: 750;
+  line-height: 1;
+  padding: 0 5px;
+}
+
 .nav-link::after {
   position: absolute;
   right: 0;
