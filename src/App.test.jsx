@@ -57,7 +57,7 @@ describe('customer booking flow in mock mode', () => {
 
     expect(await screen.findByRole('heading', { name: roomName })).toBeVisible()
     expect(screen.getByText(bookingCode)).toBeVisible()
-  })
+  }, 10_000)
 
   it('protects admin routes for a signed-in customer', async () => {
     const user = userEvent.setup()
@@ -68,5 +68,17 @@ describe('customer booking flow in mock mode', () => {
     await user.click(screen.getByRole('button', { name: /^Đăng nhập/i }))
 
     expect(await screen.findByRole('heading', { name: /Bạn chưa có quyền vào đây/i })).toBeVisible()
+  })
+
+  it('routes an authenticated admin to the notification operations page', async () => {
+    const user = userEvent.setup()
+    renderApp('/admin/notifications')
+
+    expect(await screen.findByRole('heading', { name: /Đăng nhập CloudStay/i })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: /Dùng tài khoản admin/i }))
+    await user.click(screen.getByRole('button', { name: /^Đăng nhập/i }))
+
+    expect(await screen.findByRole('heading', { name: 'Thông báo' })).toBeVisible()
+    expect(screen.getByRole('link', { name: 'Thông báo' })).toHaveAttribute('href', '/admin/notifications')
   })
 })

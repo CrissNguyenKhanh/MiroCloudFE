@@ -13,6 +13,7 @@ import NotificationsPage from './pages/NotificationsPage'
 import AdminDashboardPage from './pages/admin/AdminDashboardPage'
 import AdminRoomsPage from './pages/admin/AdminRoomsPage'
 import AdminBookingsPage from './pages/admin/AdminBookingsPage'
+import AdminNotificationsPage from './pages/admin/AdminNotificationsPage'
 import AdminUsersPage from './pages/admin/AdminUsersPage'
 import AdminOutboxPage from './pages/admin/AdminOutboxPage'
 import ForbiddenPage from './pages/ForbiddenPage'
@@ -39,6 +40,7 @@ export default function App() {
         <Route index element={<AdminDashboardPage />} />
         <Route path="rooms" element={<AdminRoomsPage />} />
         <Route path="bookings" element={<AdminBookingsPage />} />
+        <Route path="notifications" element={<AdminNotificationsPage />} />
         <Route path="users" element={<AdminUsersPage />} />
         <Route path="outbox" element={<AdminOutboxPage />} />
       </Route>
