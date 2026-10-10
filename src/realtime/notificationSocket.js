@@ -25,6 +25,8 @@ export function dispatchNotificationsChanged() {
 
 export function createNotificationSocket({
   onNotification,
+  audience = 'USER',
+  expectedAudience = audience,
   baseUrl = apiConfig.notificationBaseUrl,
   getAccessToken = () => getApiSession().accessToken,
   WebSocketImpl = globalThis.WebSocket,
@@ -85,7 +87,7 @@ export function createNotificationSocket({
 
       if (!authenticated
         || message?.type !== 'NOTIFICATION_CREATED'
-        || message.audience !== 'USER'
+        || message.audience !== expectedAudience
         || typeof message.notification_id !== 'string'
         || !SUPPORTED_EVENT_TYPES.has(message.event_type)) return
 

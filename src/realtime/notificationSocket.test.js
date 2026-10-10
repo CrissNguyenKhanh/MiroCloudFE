@@ -124,6 +124,41 @@ describe('notificationSocket', () => {
     connection.close()
   })
 
+  it('delivers ADMIN notification signals when the expected audience is ADMIN', () => {
+    const onNotification = vi.fn()
+    const connection = createSocket({ expectedAudience: 'ADMIN', onNotification })
+    const socket = FakeWebSocket.instances[0]
+    const message = {
+      type: 'NOTIFICATION_CREATED',
+      notification_id: 'notification-admin-1',
+      event_type: 'BOOKING_CREATED',
+      audience: 'ADMIN',
+    }
+    authenticate(socket)
+
+    socket.emit('message', { data: JSON.stringify(message) })
+
+    expect(onNotification).toHaveBeenCalledWith(message)
+    connection.close()
+  })
+
+  it('ignores USER notification signals in an ADMIN connection', () => {
+    const onNotification = vi.fn()
+    const connection = createSocket({ audience: 'ADMIN', onNotification })
+    const socket = FakeWebSocket.instances[0]
+    authenticate(socket)
+
+    socket.emit('message', { data: JSON.stringify({
+      type: 'NOTIFICATION_CREATED',
+      notification_id: 'notification-user-1',
+      event_type: 'BOOKING_CANCELLED',
+      audience: 'USER',
+    }) })
+
+    expect(onNotification).not.toHaveBeenCalled()
+    connection.close()
+  })
+
   it('ignores malformed and unsupported messages without throwing', () => {
     const onNotification = vi.fn()
     const connection = createSocket({ onNotification })
