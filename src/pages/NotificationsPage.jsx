@@ -1,9 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Bell, CalendarCheck2, CheckCheck, CircleX, Sparkles } from 'lucide-react'
 import { api } from '../api'
 import { getErrorMessage } from '../api/errors'
 import { EmptyState, ErrorState, LoadingState } from '../components/common/States'
 import { useToast } from '../contexts/ToastContext'
+import {
+  dispatchNotificationsChanged,
+  NOTIFICATION_CREATED_EVENT,
+} from '../realtime/notificationSocket'
 
 const typeIcons = {
   booking_confirmed: CalendarCheck2,
@@ -29,22 +33,37 @@ export default function NotificationsPage() {
   const [error, setError] = useState('')
   const [updating, setUpdating] = useState(false)
   const [pendingIds, setPendingIds] = useState(() => new Set())
+  const loadRequestRef = useRef(0)
   const { showToast } = useToast()
 
-  const loadNotifications = useCallback(async () => {
-    setStatus('loading')
+  const loadNotifications = useCallback(async ({ silent = false } = {}) => {
+    const requestId = ++loadRequestRef.current
+    if (!silent) setStatus('loading')
     try {
       const result = await api.notifications.mine()
+      if (requestId !== loadRequestRef.current) return
       setNotifications(result.data)
       setStatus('success')
     } catch (loadError) {
-      setError(getErrorMessage(loadError))
-      setStatus('error')
+      if (requestId !== loadRequestRef.current) return
+      if (!silent) {
+        setError(getErrorMessage(loadError))
+        setStatus('error')
+      }
     }
   }, [])
 
   useEffect(() => {
     loadNotifications()
+    return () => {
+      loadRequestRef.current += 1
+    }
+  }, [loadNotifications])
+
+  useEffect(() => {
+    const handleNotificationCreated = () => loadNotifications({ silent: true })
+    window.addEventListener(NOTIFICATION_CREATED_EVENT, handleNotificationCreated)
+    return () => window.removeEventListener(NOTIFICATION_CREATED_EVENT, handleNotificationCreated)
   }, [loadNotifications])
 
   const markRead = async (id) => {
@@ -53,6 +72,7 @@ export default function NotificationsPage() {
     try {
       const updated = await api.notifications.markRead(id)
       setNotifications((current) => current.map((item) => item.id === id ? updated : item))
+      dispatchNotificationsChanged()
     } catch (updateError) {
       showToast(getErrorMessage(updateError), 'error')
     } finally {
@@ -69,6 +89,7 @@ export default function NotificationsPage() {
     try {
       const result = await api.notifications.markAllRead()
       setNotifications(result.data)
+      dispatchNotificationsChanged()
       if (result.failedCount > 0) {
         showToast(`Đã cập nhật ${result.updatedCount}/${result.attemptedCount} thông báo; ${result.failedCount} thông báo chưa hoàn tất.`, 'error')
       } else {
