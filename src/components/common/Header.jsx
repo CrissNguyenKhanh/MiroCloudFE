@@ -3,9 +3,15 @@ import { Bell, ChevronDown, LogOut, Menu, ShieldCheck, UserRound, X } from 'luci
 import { NavLink, useNavigate } from 'react-router-dom'
 import { api } from '../../api'
 import { useAuth } from '../../contexts/AuthContext'
+import { useToast } from '../../contexts/ToastContext'
+import {
+  createNotificationSocket,
+  NOTIFICATION_CREATED_EVENT,
+  NOTIFICATIONS_CHANGED_EVENT,
+} from '../../realtime/notificationSocket'
 import Brand from './Brand'
 
-const NOTIFICATION_POLL_INTERVAL_MS = 30_000
+const NOTIFICATION_POLL_INTERVAL_MS = 60_000
 
 const navItems = [
   { to: '/', label: 'Trang chủ', end: true },
@@ -19,6 +25,7 @@ export default function Header() {
   const [accountOpen, setAccountOpen] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
   const { user, isAuthenticated, isAdmin, logout } = useAuth()
+  const { showToast } = useToast()
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -28,27 +35,48 @@ export default function Header() {
     }
 
     let active = true
+    let latestRequest = 0
     setUnreadCount(0)
 
-    const refreshUnreadCount = async () => {
+    const refreshNotifications = async (signal) => {
+      const requestId = ++latestRequest
       try {
         const result = await api.notifications.mine()
         if (active) {
-          setUnreadCount(result.data.filter((notification) => notification.read === false).length)
+          if (requestId === latestRequest) {
+            setUnreadCount(result.data.filter((notification) => notification.read === false).length)
+          }
+          if (signal?.event_type === 'BOOKING_CANCELLED') {
+            const notification = result.data.find((item) => item.id === signal.notification_id)
+            const cancelledBy = notification?.payload?.cancelledBy
+            if (typeof cancelledBy === 'string' && cancelledBy.toUpperCase() === 'ADMIN') {
+              showToast('Đặt phòng của bạn đã bị quản trị viên hủy.', 'info')
+            }
+          }
         }
       } catch {
         // Header polling is best-effort. Keep the current count and avoid noisy toasts.
       }
     }
 
-    refreshUnreadCount()
-    const intervalId = window.setInterval(refreshUnreadCount, NOTIFICATION_POLL_INTERVAL_MS)
+    const handleNotificationCreated = (message) => {
+      window.dispatchEvent(new CustomEvent(NOTIFICATION_CREATED_EVENT, { detail: message }))
+      return refreshNotifications(message)
+    }
+    const handleNotificationsChanged = () => refreshNotifications()
+
+    refreshNotifications()
+    const intervalId = window.setInterval(refreshNotifications, NOTIFICATION_POLL_INTERVAL_MS)
+    const socket = createNotificationSocket({ onNotification: handleNotificationCreated })
+    window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, handleNotificationsChanged)
 
     return () => {
       active = false
       window.clearInterval(intervalId)
+      window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, handleNotificationsChanged)
+      socket.close()
     }
-  }, [isAuthenticated, user?.id])
+  }, [isAuthenticated, showToast, user?.id])
 
   const closeMenus = () => {
     setMenuOpen(false)
