@@ -1,253 +1,358 @@
-import { DEMO_ACCOUNTS } from '../../data/mockData'
-import { addDays, calculateNights, canCustomerCancel, rangesOverlap, todayISO, validateStay } from '../../utils/date'
-import { ApiError } from '../errors'
-import { clearApiSession, getApiSession, setApiSession } from '../session'
-import { readMockState, resetMockState, updateMockState } from './store'
+import { DEMO_ACCOUNTS } from "../../data/mockData";
+import {
+  addDays,
+  calculateNights,
+  canCustomerCancel,
+  rangesOverlap,
+  todayISO,
+  validateStay,
+} from "../../utils/date";
+import { isReviewableBooking, REVIEW_LIMITS } from "../../utils/review";
+import { ApiError } from "../errors";
+import { clearApiSession, getApiSession, setApiSession } from "../session";
+import { readMockState, resetMockState, updateMockState } from "./store";
 
-const registeredCredentials = new Map()
-const ACTIVE_BOOKING_STATUSES = new Set(['pending', 'confirmed'])
+const registeredCredentials = new Map();
+const ACTIVE_BOOKING_STATUSES = new Set(["pending", "confirmed"]);
 
 function clone(value) {
-  return value === undefined ? undefined : structuredClone(value)
+  return value === undefined ? undefined : structuredClone(value);
 }
 
 function createId(prefix) {
   const suffix = globalThis.crypto?.randomUUID
     ? globalThis.crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  return `${prefix}-${suffix}`
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `${prefix}-${suffix}`;
 }
 
 function normalizeEmail(value) {
-  return String(value ?? '').trim().toLowerCase()
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
 }
 
 function normalizeText(value) {
-  return String(value ?? '').trim()
+  return String(value ?? "").trim();
 }
 
 function apiError(message, status, code, details) {
-  return new ApiError(message, { status, code, details })
+  return new ApiError(message, { status, code, details });
 }
 
 function requireUser() {
-  const user = getApiSession().user
+  const user = getApiSession().user;
   if (!user) {
-    throw apiError('Vui lòng đăng nhập để tiếp tục.', 401, 'AUTH_REQUIRED')
+    throw apiError("Vui lòng đăng nhập để tiếp tục.", 401, "AUTH_REQUIRED");
   }
-  return user
+  return user;
 }
 
 function requireAdmin() {
-  const user = requireUser()
-  if (user.role !== 'admin') {
-    throw apiError('Bạn không có quyền thực hiện thao tác này.', 403, 'ADMIN_REQUIRED')
+  const user = requireUser();
+  if (user.role !== "admin") {
+    throw apiError(
+      "Bạn không có quyền thực hiện thao tác này.",
+      403,
+      "ADMIN_REQUIRED",
+    );
   }
-  return user
+  return user;
 }
 
 function findRoom(state, roomId) {
-  const room = state.rooms.find(({ id }) => id === roomId)
-  if (!room) throw apiError('Không tìm thấy phòng.', 404, 'ROOM_NOT_FOUND')
-  return room
+  const room = state.rooms.find(({ id }) => id === roomId);
+  if (!room) throw apiError("Không tìm thấy phòng.", 404, "ROOM_NOT_FOUND");
+  return room;
 }
 
 function findBooking(state, bookingId) {
-  const booking = state.bookings.find(({ id }) => id === bookingId)
-  if (!booking) throw apiError('Không tìm thấy đơn đặt phòng.', 404, 'BOOKING_NOT_FOUND')
-  return booking
+  const booking = state.bookings.find(({ id }) => id === bookingId);
+  if (!booking)
+    throw apiError("Không tìm thấy đơn đặt phòng.", 404, "BOOKING_NOT_FOUND");
+  return booking;
 }
 
 function ensureBookingAccess(booking, user) {
-  if (user.role !== 'admin' && booking.userId !== user.id) {
-    throw apiError('Bạn không có quyền xem đơn đặt phòng này.', 403, 'BOOKING_FORBIDDEN')
+  if (user.role !== "admin" && booking.userId !== user.id) {
+    throw apiError(
+      "Bạn không có quyền xem đơn đặt phòng này.",
+      403,
+      "BOOKING_FORBIDDEN",
+    );
   }
 }
 
 function compareNewest(first, second) {
-  return String(second.createdAt ?? '').localeCompare(String(first.createdAt ?? ''))
+  return String(second.createdAt ?? "").localeCompare(
+    String(first.createdAt ?? ""),
+  );
 }
 
 function collection(data, meta = null) {
-  return { data: clone(data), meta: clone(meta) }
+  return { data: clone(data), meta: clone(meta) };
 }
 
 function paginated(data, filters = {}, defaultLimit = 10) {
-  const requestedPage = Number(filters.page)
-  const requestedLimit = Number(filters.limit)
-  const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1
-  const limit = Number.isInteger(requestedLimit) && requestedLimit > 0
-    ? requestedLimit
-    : defaultLimit
-  const start = (page - 1) * limit
-  return collection(data.slice(start, start + limit), { page, limit, total: data.length })
+  const requestedPage = Number(filters.page);
+  const requestedLimit = Number(filters.limit);
+  const page =
+    Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  const limit =
+    Number.isInteger(requestedLimit) && requestedLimit > 0
+      ? requestedLimit
+      : defaultLimit;
+  const start = (page - 1) * limit;
+  return collection(data.slice(start, start + limit), {
+    page,
+    limit,
+    total: data.length,
+  });
 }
 
 function canCancelBooking(booking, { asAdmin = false } = {}) {
-  return ACTIVE_BOOKING_STATUSES.has(booking.status) && (asAdmin || canCustomerCancel(booking))
+  return (
+    ACTIVE_BOOKING_STATUSES.has(booking.status) &&
+    (asAdmin || canCustomerCancel(booking))
+  );
+}
+
+// Mirrors backend ReviewService.reviewState: attached to booking detail only.
+function reviewStateFor(state, booking) {
+  const review = state.reviews.find(
+    ({ bookingId }) => bookingId === booking.id,
+  );
+  return {
+    canReview: !review && isReviewableBooking(booking),
+    reviewId: review?.id ?? null,
+  };
 }
 
 function presentBooking(
   state,
   booking,
-  { includeUser = false, allowAdminCancellation = false } = {},
+  {
+    includeUser = false,
+    allowAdminCancellation = false,
+    includeReviewState = false,
+  } = {},
 ) {
-  const room = state.rooms.find(({ id }) => id === booking.roomId) ?? null
+  const room = state.rooms.find(({ id }) => id === booking.roomId) ?? null;
   const user = includeUser
-    ? state.users.find(({ id }) => id === booking.userId) ?? null
-    : undefined
+    ? (state.users.find(({ id }) => id === booking.userId) ?? null)
+    : undefined;
 
   return clone({
     ...booking,
     room,
     ...(includeUser ? { user } : {}),
     canCancel: canCancelBooking(booking, { asAdmin: allowAdminCancellation }),
-  })
+    ...(includeReviewState ? reviewStateFor(state, booking) : {}),
+  });
 }
 
-function hasBookingConflict(state, roomId, checkInDate, checkOutDate, ignoredBookingId) {
+function hasBookingConflict(
+  state,
+  roomId,
+  checkInDate,
+  checkOutDate,
+  ignoredBookingId,
+) {
   return state.bookings.some(
     (booking) =>
       booking.id !== ignoredBookingId &&
       booking.roomId === roomId &&
       ACTIVE_BOOKING_STATUSES.has(booking.status) &&
-      rangesOverlap(checkInDate, checkOutDate, booking.checkInDate, booking.checkOutDate),
-  )
+      rangesOverlap(
+        checkInDate,
+        checkOutDate,
+        booking.checkInDate,
+        booking.checkOutDate,
+      ),
+  );
 }
 
 function validateDatePair(filters) {
-  const checkIn = filters.checkIn ?? filters.checkInDate
-  const checkOut = filters.checkOut ?? filters.checkOutDate
+  const checkIn = filters.checkIn ?? filters.checkInDate;
+  const checkOut = filters.checkOut ?? filters.checkOutDate;
 
-  if (!checkIn && !checkOut) return { checkIn: null, checkOut: null }
+  if (!checkIn && !checkOut) return { checkIn: null, checkOut: null };
 
   const errors = validateStay({
     checkIn,
     checkOut,
     guests: filters.guests ?? 1,
     minDate: filters.minDate ?? todayISO(),
-  })
+  });
   if (Object.keys(errors).length) {
-    throw apiError('Thông tin tìm kiếm chưa hợp lệ.', 400, 'VALIDATION_ERROR', errors)
+    throw apiError(
+      "Thông tin tìm kiếm chưa hợp lệ.",
+      400,
+      "VALIDATION_ERROR",
+      errors,
+    );
   }
 
-  return { checkIn, checkOut }
+  return { checkIn, checkOut };
 }
 
 function roomMatchesText(room, query) {
-  if (!query) return true
-  const haystack = [room.name, room.roomNumber, room.type, room.view, ...(room.amenities ?? [])]
-    .join(' ')
-    .toLocaleLowerCase('vi')
-  return haystack.includes(String(query).trim().toLocaleLowerCase('vi'))
+  if (!query) return true;
+  const haystack = [
+    room.name,
+    room.roomNumber,
+    room.type,
+    room.view,
+    ...(room.amenities ?? []),
+  ]
+    .join(" ")
+    .toLocaleLowerCase("vi");
+  return haystack.includes(String(query).trim().toLocaleLowerCase("vi"));
 }
 
 function readRoomFilters(filters = {}, { admin = false } = {}) {
-  const guests = filters.guests === undefined || filters.guests === '' ? null : Number(filters.guests)
-  const minPrice = filters.minPrice === undefined || filters.minPrice === '' ? null : Number(filters.minPrice)
-  const maxPrice = filters.maxPrice === undefined || filters.maxPrice === '' ? null : Number(filters.maxPrice)
+  const guests =
+    filters.guests === undefined || filters.guests === ""
+      ? null
+      : Number(filters.guests);
+  const minPrice =
+    filters.minPrice === undefined || filters.minPrice === ""
+      ? null
+      : Number(filters.minPrice);
+  const maxPrice =
+    filters.maxPrice === undefined || filters.maxPrice === ""
+      ? null
+      : Number(filters.maxPrice);
 
   if (guests !== null && (!Number.isInteger(guests) || guests < 1)) {
-    throw apiError('Số khách phải là số nguyên dương.', 400, 'VALIDATION_ERROR', {
-      guests: 'Số khách phải là số nguyên dương.',
-    })
+    throw apiError(
+      "Số khách phải là số nguyên dương.",
+      400,
+      "VALIDATION_ERROR",
+      {
+        guests: "Số khách phải là số nguyên dương.",
+      },
+    );
   }
   if (minPrice !== null && (!Number.isFinite(minPrice) || minPrice < 0)) {
-    throw apiError('Mức giá tối thiểu không hợp lệ.', 400, 'VALIDATION_ERROR', {
-      minPrice: 'Mức giá tối thiểu không hợp lệ.',
-    })
+    throw apiError("Mức giá tối thiểu không hợp lệ.", 400, "VALIDATION_ERROR", {
+      minPrice: "Mức giá tối thiểu không hợp lệ.",
+    });
   }
   if (maxPrice !== null && (!Number.isFinite(maxPrice) || maxPrice < 0)) {
-    throw apiError('Mức giá tối đa không hợp lệ.', 400, 'VALIDATION_ERROR', {
-      maxPrice: 'Mức giá tối đa không hợp lệ.',
-    })
+    throw apiError("Mức giá tối đa không hợp lệ.", 400, "VALIDATION_ERROR", {
+      maxPrice: "Mức giá tối đa không hợp lệ.",
+    });
   }
   if (minPrice !== null && maxPrice !== null && minPrice > maxPrice) {
-    throw apiError('Khoảng giá chưa hợp lệ.', 400, 'VALIDATION_ERROR', {
-      maxPrice: 'Giá tối đa phải lớn hơn hoặc bằng giá tối thiểu.',
-    })
+    throw apiError("Khoảng giá chưa hợp lệ.", 400, "VALIDATION_ERROR", {
+      maxPrice: "Giá tối đa phải lớn hơn hoặc bằng giá tối thiểu.",
+    });
   }
 
-  const dates = admin ? { checkIn: null, checkOut: null } : validateDatePair({ ...filters, guests: guests ?? 1 })
-  return { guests, minPrice, maxPrice, ...dates }
+  const dates = admin
+    ? { checkIn: null, checkOut: null }
+    : validateDatePair({ ...filters, guests: guests ?? 1 });
+  return { guests, minPrice, maxPrice, ...dates };
 }
 
 function filterRooms(state, filters = {}, options = {}) {
-  const { guests, minPrice, maxPrice, checkIn, checkOut } = readRoomFilters(filters, options)
-  const type = normalizeText(filters.roomType ?? filters.type).toLowerCase()
+  const { guests, minPrice, maxPrice, checkIn, checkOut } = readRoomFilters(
+    filters,
+    options,
+  );
+  const type = normalizeText(filters.roomType ?? filters.type).toLowerCase();
   const requestedBookable =
-    filters.isBookable === undefined || filters.isBookable === ''
+    filters.isBookable === undefined || filters.isBookable === ""
       ? null
-      : filters.isBookable === true || filters.isBookable === 'true'
+      : filters.isBookable === true || filters.isBookable === "true";
 
   return state.rooms.filter((room) => {
-    if (!options.admin && !room.isBookable) return false
-    if (options.admin && requestedBookable !== null && room.isBookable !== requestedBookable) return false
-    if (filters.featured !== undefined && room.featured !== (filters.featured === true || filters.featured === 'true')) return false
-    if (type && room.type.toLowerCase() !== type) return false
-    if (guests !== null && room.capacity < guests) return false
-    if (minPrice !== null && room.pricePerNight < minPrice) return false
-    if (maxPrice !== null && room.pricePerNight > maxPrice) return false
-    if (!roomMatchesText(room, filters.query ?? filters.search)) return false
-    if (checkIn && hasBookingConflict(state, room.id, checkIn, checkOut)) return false
-    return true
-  })
+    if (!options.admin && !room.isBookable) return false;
+    if (
+      options.admin &&
+      requestedBookable !== null &&
+      room.isBookable !== requestedBookable
+    )
+      return false;
+    if (
+      filters.featured !== undefined &&
+      room.featured !==
+        (filters.featured === true || filters.featured === "true")
+    )
+      return false;
+    if (type && room.type.toLowerCase() !== type) return false;
+    if (guests !== null && room.capacity < guests) return false;
+    if (minPrice !== null && room.pricePerNight < minPrice) return false;
+    if (maxPrice !== null && room.pricePerNight > maxPrice) return false;
+    if (!roomMatchesText(room, filters.query ?? filters.search)) return false;
+    if (checkIn && hasBookingConflict(state, room.id, checkIn, checkOut))
+      return false;
+    return true;
+  });
 }
 
 function validateRoomPayload(payload, { partial = false } = {}) {
-  const errors = {}
-  const name = normalizeText(payload.name)
-  const roomNumber = normalizeText(payload.roomNumber)
-  const type = normalizeText(payload.type).toLowerCase()
-  const pricePerNight = Number(payload.pricePerNight)
-  const capacity = Number(payload.capacity)
+  const errors = {};
+  const name = normalizeText(payload.name);
+  const roomNumber = normalizeText(payload.roomNumber);
+  const type = normalizeText(payload.type).toLowerCase();
+  const pricePerNight = Number(payload.pricePerNight);
+  const capacity = Number(payload.capacity);
 
   if (!partial || payload.name !== undefined) {
-    if (!name) errors.name = 'Vui lòng nhập tên phòng.'
+    if (!name) errors.name = "Vui lòng nhập tên phòng.";
   }
   if (!partial || payload.roomNumber !== undefined) {
-    if (!roomNumber) errors.roomNumber = 'Vui lòng nhập số phòng.'
+    if (!roomNumber) errors.roomNumber = "Vui lòng nhập số phòng.";
   }
   if (!partial || payload.type !== undefined) {
-    if (!type) errors.type = 'Vui lòng chọn loại phòng.'
+    if (!type) errors.type = "Vui lòng chọn loại phòng.";
   }
   if (!partial || payload.pricePerNight !== undefined) {
     if (!Number.isFinite(pricePerNight) || pricePerNight <= 0) {
-      errors.pricePerNight = 'Giá mỗi đêm phải lớn hơn 0.'
+      errors.pricePerNight = "Giá mỗi đêm phải lớn hơn 0.";
     }
   }
   if (!partial || payload.capacity !== undefined) {
     if (!Number.isInteger(capacity) || capacity < 1) {
-      errors.capacity = 'Sức chứa phải là số nguyên dương.'
+      errors.capacity = "Sức chứa phải là số nguyên dương.";
     }
   }
   if (payload.amenities !== undefined && !Array.isArray(payload.amenities)) {
-    errors.amenities = 'Danh sách tiện nghi không hợp lệ.'
+    errors.amenities = "Danh sách tiện nghi không hợp lệ.";
   }
 
   if (Object.keys(errors).length) {
-    throw apiError('Thông tin phòng chưa hợp lệ.', 400, 'VALIDATION_ERROR', errors)
+    throw apiError(
+      "Thông tin phòng chưa hợp lệ.",
+      400,
+      "VALIDATION_ERROR",
+      errors,
+    );
   }
 
   return {
     ...(payload.name !== undefined || !partial ? { name } : {}),
     ...(payload.roomNumber !== undefined || !partial ? { roomNumber } : {}),
     ...(payload.type !== undefined || !partial ? { type } : {}),
-    ...(payload.pricePerNight !== undefined || !partial ? { pricePerNight } : {}),
+    ...(payload.pricePerNight !== undefined || !partial
+      ? { pricePerNight }
+      : {}),
     ...(payload.capacity !== undefined || !partial ? { capacity } : {}),
-  }
+  };
 }
 
 function makeNotification(userId, { title, message, type }) {
   return {
-    id: createId('notification'),
+    id: createId("notification"),
     userId,
     title,
     message,
     type,
     read: false,
     createdAt: new Date().toISOString(),
-  }
+  };
 }
 
 function bookingFingerprint(payload) {
@@ -256,7 +361,7 @@ function bookingFingerprint(payload) {
     checkInDate: payload.checkInDate,
     checkOutDate: payload.checkOutDate,
     guests: payload.guests,
-  })
+  });
 }
 
 function normalizeBookingPayload(payload = {}) {
@@ -266,224 +371,357 @@ function normalizeBookingPayload(payload = {}) {
     checkOutDate: payload.checkOutDate ?? payload.checkOut,
     guests: Number(payload.guests),
     specialRequests: normalizeText(payload.specialRequests),
-  }
+  };
 }
 
-async function cancelMockBooking(bookingId, options = {}, { admin = false } = {}) {
-  const user = admin ? requireAdmin() : requireUser()
-  const reason = normalizeText(typeof options === 'string' ? options : options.reason)
+async function cancelMockBooking(
+  bookingId,
+  options = {},
+  { admin = false } = {},
+) {
+  const user = admin ? requireAdmin() : requireUser();
+  const reason = normalizeText(
+    typeof options === "string" ? options : options.reason,
+  );
   if (admin && reason.length < 2) {
-    throw apiError('Vui lòng nhập lý do hủy.', 400, 'VALIDATION_ERROR', { reason: 'required' })
+    throw apiError("Vui lòng nhập lý do hủy.", 400, "VALIDATION_ERROR", {
+      reason: "required",
+    });
   }
-  let cancelledBooking
+  let cancelledBooking;
 
   updateMockState((state) => {
-    const booking = findBooking(state, bookingId)
+    const booking = findBooking(state, bookingId);
     if (!admin && booking.userId !== user.id) {
-      throw apiError('Bạn không có quyền hủy đơn đặt phòng này.', 403, 'BOOKING_FORBIDDEN')
+      throw apiError(
+        "Bạn không có quyền hủy đơn đặt phòng này.",
+        403,
+        "BOOKING_FORBIDDEN",
+      );
     }
-    if (booking.status === 'cancelled') {
-      cancelledBooking = booking
-      return state
+    if (booking.status === "cancelled") {
+      cancelledBooking = booking;
+      return state;
     }
     if (!ACTIVE_BOOKING_STATUSES.has(booking.status)) {
-      throw apiError('Đơn này không còn có thể hủy.', 409, 'BOOKING_NOT_CANCELLABLE')
+      throw apiError(
+        "Đơn này không còn có thể hủy.",
+        409,
+        "BOOKING_NOT_CANCELLABLE",
+      );
     }
     if (!admin && !canCustomerCancel(booking)) {
-      throw apiError('Đã quá thời hạn hủy đơn này.', 409, 'CANCELLATION_WINDOW_PASSED')
+      throw apiError(
+        "Đã quá thời hạn hủy đơn này.",
+        409,
+        "CANCELLATION_WINDOW_PASSED",
+      );
     }
 
-    booking.status = 'cancelled'
-    booking.cancelledAt = new Date().toISOString()
-    booking.cancelledBy = user.id
-    booking.cancellationReason = reason || null
-    cancelledBooking = booking
+    booking.status = "cancelled";
+    booking.cancelledAt = new Date().toISOString();
+    booking.cancelledBy = user.id;
+    booking.cancellationReason = reason || null;
+    cancelledBooking = booking;
 
-    const room = state.rooms.find(({ id }) => id === booking.roomId)
+    const room = state.rooms.find(({ id }) => id === booking.roomId);
     state.notifications.push(
       makeNotification(booking.userId, {
-        title: 'Đã hủy đặt phòng',
-        message: `Đơn ${booking.code}${room ? ` cho phòng ${room.name}` : ''} đã được hủy.`,
-        type: 'booking_cancelled',
+        title: "Đã hủy đặt phòng",
+        message: `Đơn ${booking.code}${room ? ` cho phòng ${room.name}` : ""} đã được hủy.`,
+        type: "booking_cancelled",
       }),
-    )
-    return state
-  })
+    );
+    return state;
+  });
 
   return presentBooking(readMockState(), cancelledBooking, {
     includeUser: admin,
     allowAdminCancellation: admin,
-  })
+  });
+}
+
+function validateReviewPayload(payload = {}, { partial = false } = {}) {
+  const errors = {};
+  const values = {};
+
+  if (!partial || payload.rating !== undefined) {
+    const rating = Number(payload.rating);
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      errors.rating = "Điểm đánh giá phải từ 1 đến 5 sao.";
+    } else {
+      values.rating = rating;
+    }
+  }
+  if (!partial || payload.title !== undefined) {
+    const title = normalizeText(payload.title);
+    if (title.length > REVIEW_LIMITS.title)
+      errors.title = `Tiêu đề tối đa ${REVIEW_LIMITS.title} ký tự.`;
+    else values.title = title;
+  }
+  if (!partial || payload.comment !== undefined) {
+    const comment = normalizeText(payload.comment);
+    if (comment.length > REVIEW_LIMITS.comment)
+      errors.comment = `Nội dung tối đa ${REVIEW_LIMITS.comment} ký tự.`;
+    else values.comment = comment;
+  }
+  const rawName = payload.displayName ?? payload.reviewerName;
+  if (!partial || rawName !== undefined) {
+    const name = normalizeText(rawName ?? "Khách lưu trú");
+    if (!name || name.length > REVIEW_LIMITS.displayName) {
+      errors.displayName = `Tên hiển thị phải từ 1 đến ${REVIEW_LIMITS.displayName} ký tự.`;
+    } else {
+      values.reviewerName = name;
+    }
+  }
+  if (partial && !Object.keys(errors).length && !Object.keys(values).length) {
+    errors.payload = "Cần ít nhất một trường cập nhật.";
+  }
+
+  if (Object.keys(errors).length) {
+    throw apiError(
+      "Dữ liệu đầu vào không hợp lệ",
+      400,
+      "VALIDATION_ERROR",
+      errors,
+    );
+  }
+  return values;
+}
+
+function presentReview(state, review, { admin = false } = {}) {
+  const room = state.rooms.find(({ id }) => id === review.roomId);
+  const { userId, bookingCode: code, ...publicFields } = review;
+  return clone({
+    ...publicFields,
+    roomName: room?.name ?? "",
+    ...(admin ? { userId, bookingCode: code } : {}),
+  });
+}
+
+function summarizeReviews(reviews) {
+  const distribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  reviews.forEach(({ rating }) => {
+    distribution[rating] += 1;
+  });
+  const total = reviews.reduce((sum, { rating }) => sum + rating, 0);
+  return {
+    averageRating: reviews.length
+      ? Math.round((total / reviews.length) * 10) / 10
+      : 0,
+    reviewCount: reviews.length,
+    distribution,
+  };
+}
+
+function findOwnReview(state, reviewId, user) {
+  const review = state.reviews.find(({ id }) => id === reviewId);
+  if (!review || review.userId !== user.id) {
+    throw apiError("Không tìm thấy đánh giá", 404, "REVIEW_NOT_FOUND");
+  }
+  return review;
 }
 
 function bookingCode() {
-  const random = Math.random().toString(36).slice(2, 8).toUpperCase().padEnd(6, '0')
-  return `CS-${random}`
+  const random = Math.random()
+    .toString(36)
+    .slice(2, 8)
+    .toUpperCase()
+    .padEnd(6, "0");
+  return `CS-${random}`;
 }
 
 export function createMockApi() {
   return {
     identity: {
       async login(credentials = {}) {
-        const email = normalizeEmail(credentials.email)
-        const password = String(credentials.password ?? '')
+        const email = normalizeEmail(credentials.email);
+        const password = String(credentials.password ?? "");
         const demoAccount = DEMO_ACCOUNTS.find(
-          (account) => normalizeEmail(account.email) === email && account.password === password,
-        )
-        const registeredUserId = registeredCredentials.get(email)?.password === password
-          ? registeredCredentials.get(email).userId
-          : null
-        const state = readMockState()
-        const userId = demoAccount?.user.id ?? registeredUserId
-        const user = state.users.find(({ id }) => id === userId)
+          (account) =>
+            normalizeEmail(account.email) === email &&
+            account.password === password,
+        );
+        const registeredUserId =
+          registeredCredentials.get(email)?.password === password
+            ? registeredCredentials.get(email).userId
+            : null;
+        const state = readMockState();
+        const userId = demoAccount?.user.id ?? registeredUserId;
+        const user = state.users.find(({ id }) => id === userId);
 
         if (!user) {
-          throw apiError('Email hoặc mật khẩu không đúng.', 401, 'INVALID_CREDENTIALS')
+          throw apiError(
+            "Email hoặc mật khẩu không đúng.",
+            401,
+            "INVALID_CREDENTIALS",
+          );
         }
 
-        if (user.status === 'locked') {
-          throw apiError('Tài khoản đã bị khóa.', 403, 'ACCOUNT_LOCKED')
+        if (user.status === "locked") {
+          throw apiError("Tài khoản đã bị khóa.", 403, "ACCOUNT_LOCKED");
         }
 
         const session = {
           accessToken: `mock-token-${user.id}-${Date.now()}`,
           user: clone(user),
-        }
-        setApiSession(session)
-        return clone(session)
+        };
+        setApiSession(session);
+        return clone(session);
       },
 
       async register(payload = {}) {
-        const fullName = normalizeText(payload.fullName ?? payload.name)
-        const email = normalizeEmail(payload.email)
-        const password = String(payload.password ?? '')
-        const phone = normalizeText(payload.phone)
-        const errors = {}
+        const fullName = normalizeText(payload.fullName ?? payload.name);
+        const email = normalizeEmail(payload.email);
+        const password = String(payload.password ?? "");
+        const phone = normalizeText(payload.phone);
+        const errors = {};
 
-        if (fullName.length < 2) errors.fullName = 'Họ tên phải có ít nhất 2 ký tự.'
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.email = 'Email không hợp lệ.'
-        if (password.length < 8) errors.password = 'Mật khẩu phải có ít nhất 8 ký tự.'
+        if (fullName.length < 2)
+          errors.fullName = "Họ tên phải có ít nhất 2 ký tự.";
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+          errors.email = "Email không hợp lệ.";
+        if (password.length < 8)
+          errors.password = "Mật khẩu phải có ít nhất 8 ký tự.";
         if (Object.keys(errors).length) {
-          throw apiError('Thông tin đăng ký chưa hợp lệ.', 400, 'VALIDATION_ERROR', errors)
+          throw apiError(
+            "Thông tin đăng ký chưa hợp lệ.",
+            400,
+            "VALIDATION_ERROR",
+            errors,
+          );
         }
 
-        const state = readMockState()
+        const state = readMockState();
         if (state.users.some((user) => normalizeEmail(user.email) === email)) {
-          throw apiError('Email này đã được sử dụng.', 409, 'EMAIL_ALREADY_EXISTS')
+          throw apiError(
+            "Email này đã được sử dụng.",
+            409,
+            "EMAIL_ALREADY_EXISTS",
+          );
         }
 
         const user = {
-          id: createId('user'),
+          id: createId("user"),
           fullName,
           email,
           phone,
-          role: 'customer',
-          status: 'active',
-        }
+          role: "customer",
+          status: "active",
+        };
         updateMockState((draft) => {
-          draft.users.push(user)
-          return draft
-        })
+          draft.users.push(user);
+          return draft;
+        });
         // Credentials stay in memory only; mock localStorage never contains passwords.
-        registeredCredentials.set(email, { password, userId: user.id })
+        registeredCredentials.set(email, { password, userId: user.id });
 
         return {
           accessToken: null,
           user: clone(user),
           registrationSucceeded: true,
           requiresLogin: true,
-        }
+        };
       },
 
       async me() {
-        return clone(requireUser())
+        return clone(requireUser());
       },
 
       async adminListUsers() {
-        requireAdmin()
+        requireAdmin();
         return collection(
-          readMockState().users.map((user) => ({ status: 'active', ...user })),
-        )
+          readMockState().users.map((user) => ({ status: "active", ...user })),
+        );
       },
 
       async updateUserStatus(userId, requestedStatus) {
-        requireAdmin()
+        requireAdmin();
         const normalized = normalizeText(
-          typeof requestedStatus === 'object' ? requestedStatus.status : requestedStatus,
-        ).toLowerCase()
-        if (!['active', 'locked'].includes(normalized)) {
-          throw apiError('Trạng thái tài khoản không hợp lệ.', 400, 'VALIDATION_ERROR')
+          typeof requestedStatus === "object"
+            ? requestedStatus.status
+            : requestedStatus,
+        ).toLowerCase();
+        if (!["active", "locked"].includes(normalized)) {
+          throw apiError(
+            "Trạng thái tài khoản không hợp lệ.",
+            400,
+            "VALIDATION_ERROR",
+          );
         }
-        let updated
+        let updated;
         updateMockState((state) => {
-          const user = state.users.find(({ id }) => id === userId)
-          if (!user) throw apiError('Không tìm thấy người dùng.', 404, 'USER_NOT_FOUND')
-          user.status = normalized
-          updated = user
-          return state
-        })
-        return clone(updated)
+          const user = state.users.find(({ id }) => id === userId);
+          if (!user)
+            throw apiError("Không tìm thấy người dùng.", 404, "USER_NOT_FOUND");
+          user.status = normalized;
+          updated = user;
+          return state;
+        });
+        return clone(updated);
       },
     },
 
     rooms: {
       async list() {
-        const rooms = readMockState().rooms.filter((room) => room.isBookable)
-        return collection(rooms)
+        const rooms = readMockState().rooms.filter((room) => room.isBookable);
+        return collection(rooms);
       },
 
       async search(filters = {}) {
-        const state = readMockState()
-        const rooms = filterRooms(state, filters).sort((a, b) => a.pricePerNight - b.pricePerNight)
-        const result = paginated(rooms, filters, 12)
-        const { checkIn, checkOut } = validateDatePair(filters)
+        const state = readMockState();
+        const rooms = filterRooms(state, filters).sort(
+          (a, b) => a.pricePerNight - b.pricePerNight,
+        );
+        const result = paginated(rooms, filters, 12);
+        const { checkIn, checkOut } = validateDatePair(filters);
         if (checkIn && checkOut) {
           Object.assign(result.meta, {
             checkIn,
             checkOut,
             nights: calculateNights(checkIn, checkOut),
-          })
+          });
         }
-        return result
+        return result;
       },
 
       async getById(roomId, filters = {}) {
-        const state = readMockState()
-        const room = clone(findRoom(state, roomId))
-        const { checkIn, checkOut } = validateDatePair(filters)
+        const state = readMockState();
+        const room = clone(findRoom(state, roomId));
+        const { checkIn, checkOut } = validateDatePair(filters);
         if (checkIn && checkOut) {
-          const nights = calculateNights(checkIn, checkOut)
+          const nights = calculateNights(checkIn, checkOut);
           room.stay = {
             checkIn,
             checkOut,
             nights,
             totalPrice: room.pricePerNight * nights,
             available: !hasBookingConflict(state, roomId, checkIn, checkOut),
-          }
+          };
         }
-        return room
+        return room;
       },
 
       async unavailableDates(roomId, filters = {}) {
-        const state = readMockState()
-        findRoom(state, roomId)
-        const from = filters.from ?? todayISO()
-        const to = filters.to ?? addDays(from, 90)
+        const state = readMockState();
+        findRoom(state, roomId);
+        const from = filters.from ?? todayISO();
+        const to = filters.to ?? addDays(from, 90);
         const bookings = state.bookings.filter(
           (booking) =>
             booking.roomId === roomId &&
             ACTIVE_BOOKING_STATUSES.has(booking.status) &&
             rangesOverlap(from, to, booking.checkInDate, booking.checkOutDate),
-        )
-        const unavailableDates = []
+        );
+        const unavailableDates = [];
         bookings.forEach((booking) => {
-          let date = booking.checkInDate < from ? from : booking.checkInDate
-          const end = booking.checkOutDate > to ? to : booking.checkOutDate
+          let date = booking.checkInDate < from ? from : booking.checkInDate;
+          const end = booking.checkOutDate > to ? to : booking.checkOutDate;
           while (date < end) {
-            unavailableDates.push(date)
-            date = addDays(date, 1)
+            unavailableDates.push(date);
+            date = addDays(date, 1);
           }
-        })
+        });
         return {
           roomId,
           from,
@@ -493,15 +731,15 @@ export function createMockApi() {
             checkOut: booking.checkOutDate,
           })),
           unavailableDates: [...new Set(unavailableDates)].sort(),
-        }
+        };
       },
 
       async alternatives(roomId, filters = {}) {
-        const state = readMockState()
-        const room = findRoom(state, roomId)
-        const { checkIn, checkOut } = validateDatePair(filters)
-        const nights = calculateNights(checkIn, checkOut)
-        const available = !hasBookingConflict(state, roomId, checkIn, checkOut)
+        const state = readMockState();
+        const room = findRoom(state, roomId);
+        const { checkIn, checkOut } = validateDatePair(filters);
+        const nights = calculateNights(checkIn, checkOut);
+        const available = !hasBookingConflict(state, roomId, checkIn, checkOut);
         const otherRooms = available
           ? []
           : filterRooms(state, filters)
@@ -512,7 +750,7 @@ export function createMockApi() {
                 nights,
                 totalPrice: candidate.pricePerNight * nights,
                 available: true,
-              }))
+              }));
         return {
           requested: {
             checkIn,
@@ -523,30 +761,38 @@ export function createMockApi() {
           },
           sameRoomRanges: [],
           otherRooms,
-        }
+        };
       },
 
       async adminList(filters = {}) {
-        requireAdmin()
-        const state = readMockState()
+        requireAdmin();
+        const state = readMockState();
         return collection(
           filterRooms(state, filters, { admin: true }).sort((a, b) =>
             a.roomNumber.localeCompare(b.roomNumber),
           ),
-        )
+        );
       },
 
       async create(payload = {}) {
-        requireAdmin()
-        const normalized = validateRoomPayload(payload)
-        let createdRoom
+        requireAdmin();
+        const normalized = validateRoomPayload(payload);
+        let createdRoom;
 
         updateMockState((state) => {
-          if (state.rooms.some((room) => room.roomNumber === normalized.roomNumber)) {
-            throw apiError('Số phòng này đã tồn tại.', 409, 'ROOM_NUMBER_EXISTS')
+          if (
+            state.rooms.some(
+              (room) => room.roomNumber === normalized.roomNumber,
+            )
+          ) {
+            throw apiError(
+              "Số phòng này đã tồn tại.",
+              409,
+              "ROOM_NUMBER_EXISTS",
+            );
           }
           createdRoom = {
-            id: createId('room'),
+            id: createId("room"),
             ...normalized,
             size: Number(payload.size) || 0,
             floor: Number(payload.floor) || 0,
@@ -556,106 +802,134 @@ export function createMockApi() {
             description: normalizeText(payload.description),
             bed: normalizeText(payload.bed),
             view: normalizeText(payload.view),
-            palette: clone(payload.palette ?? ['#8aa6b1', '#eee4d2', '#315565']),
-          }
-          state.rooms.push(createdRoom)
-          return state
-        })
+            palette: clone(
+              payload.palette ?? ["#8aa6b1", "#eee4d2", "#315565"],
+            ),
+          };
+          state.rooms.push(createdRoom);
+          return state;
+        });
 
-        return clone(createdRoom)
+        return clone(createdRoom);
       },
 
       async update(roomId, payload = {}) {
-        requireAdmin()
-        const normalized = validateRoomPayload(payload, { partial: true })
-        let updatedRoom
+        requireAdmin();
+        const normalized = validateRoomPayload(payload, { partial: true });
+        let updatedRoom;
 
         updateMockState((state) => {
-          const room = findRoom(state, roomId)
+          const room = findRoom(state, roomId);
           if (
             normalized.roomNumber &&
-            state.rooms.some(({ id, roomNumber }) => id !== roomId && roomNumber === normalized.roomNumber)
+            state.rooms.some(
+              ({ id, roomNumber }) =>
+                id !== roomId && roomNumber === normalized.roomNumber,
+            )
           ) {
-            throw apiError('Số phòng này đã tồn tại.', 409, 'ROOM_NUMBER_EXISTS')
+            throw apiError(
+              "Số phòng này đã tồn tại.",
+              409,
+              "ROOM_NUMBER_EXISTS",
+            );
           }
 
           const safeFields = [
-            'size',
-            'floor',
-            'featured',
-            'isBookable',
-            'amenities',
-            'description',
-            'bed',
-            'view',
-            'palette',
-          ]
+            "size",
+            "floor",
+            "featured",
+            "isBookable",
+            "amenities",
+            "description",
+            "bed",
+            "view",
+            "palette",
+          ];
           safeFields.forEach((field) => {
-            if (payload[field] !== undefined) room[field] = clone(payload[field])
-          })
-          Object.assign(room, normalized)
-          updatedRoom = room
-          return state
-        })
+            if (payload[field] !== undefined)
+              room[field] = clone(payload[field]);
+          });
+          Object.assign(room, normalized);
+          updatedRoom = room;
+          return state;
+        });
 
-        return clone(updatedRoom)
+        return clone(updatedRoom);
       },
 
       async toggleBookable(roomId, requestedValue) {
-        requireAdmin()
-        let updatedRoom
+        requireAdmin();
+        let updatedRoom;
         const explicitValue =
-          typeof requestedValue === 'object' && requestedValue !== null
+          typeof requestedValue === "object" && requestedValue !== null
             ? requestedValue.isBookable
-            : requestedValue
+            : requestedValue;
 
         updateMockState((state) => {
-          const room = findRoom(state, roomId)
-          room.isBookable = explicitValue === undefined ? !room.isBookable : Boolean(explicitValue)
-          updatedRoom = room
-          return state
-        })
-        return clone(updatedRoom)
+          const room = findRoom(state, roomId);
+          room.isBookable =
+            explicitValue === undefined
+              ? !room.isBookable
+              : Boolean(explicitValue);
+          updatedRoom = room;
+          return state;
+        });
+        return clone(updatedRoom);
       },
     },
 
     bookings: {
       async create(payload = {}, options = {}) {
-        const user = requireUser()
-        const normalized = normalizeBookingPayload(payload)
-        const idempotencyKey = normalizeText(options.idempotencyKey ?? payload.idempotencyKey) || null
-        let createdBooking
+        const user = requireUser();
+        const normalized = normalizeBookingPayload(payload);
+        const idempotencyKey =
+          normalizeText(options.idempotencyKey ?? payload.idempotencyKey) ||
+          null;
+        let createdBooking;
 
         updateMockState((state) => {
           if (idempotencyKey) {
             const existing = state.bookings.find(
-              (booking) => booking.userId === user.id && booking.idempotencyKey === idempotencyKey,
-            )
+              (booking) =>
+                booking.userId === user.id &&
+                booking.idempotencyKey === idempotencyKey,
+            );
             if (existing) {
-              if (bookingFingerprint(existing) !== bookingFingerprint(normalized)) {
+              if (
+                bookingFingerprint(existing) !== bookingFingerprint(normalized)
+              ) {
                 throw apiError(
-                  'Khóa chống trùng đã được dùng cho một yêu cầu đặt phòng khác.',
+                  "Khóa chống trùng đã được dùng cho một yêu cầu đặt phòng khác.",
                   409,
-                  'IDEMPOTENCY_KEY_REUSED',
-                )
+                  "IDEMPOTENCY_KEY_REUSED",
+                );
               }
-              createdBooking = existing
-              return state
+              createdBooking = existing;
+              return state;
             }
           }
 
-          const room = findRoom(state, normalized.roomId)
+          const room = findRoom(state, normalized.roomId);
           if (!room.isBookable) {
-            throw apiError('Phòng này hiện không nhận đặt chỗ.', 409, 'ROOM_NOT_BOOKABLE')
+            throw apiError(
+              "Phòng này hiện không nhận đặt chỗ.",
+              409,
+              "ROOM_NOT_BOOKABLE",
+            );
           }
           const errors = validateStay({
             checkIn: normalized.checkInDate,
             checkOut: normalized.checkOutDate,
             guests: normalized.guests,
             maxGuests: room.capacity,
-          })
+          });
           if (Object.keys(errors).length) {
-            throw apiError('Thông tin đặt phòng chưa hợp lệ.', 400, 'VALIDATION_ERROR', errors)
+            throw apiError(
+              "Thông tin đặt phòng chưa hợp lệ.",
+              400,
+              "VALIDATION_ERROR",
+              errors,
+            );
           }
           if (
             hasBookingConflict(
@@ -666,15 +940,18 @@ export function createMockApi() {
             )
           ) {
             throw apiError(
-              'Phòng vừa được khách khác đặt trong khoảng thời gian này.',
+              "Phòng vừa được khách khác đặt trong khoảng thời gian này.",
               409,
-              'ROOM_UNAVAILABLE',
-            )
+              "ROOM_UNAVAILABLE",
+            );
           }
 
-          const nights = calculateNights(normalized.checkInDate, normalized.checkOutDate)
+          const nights = calculateNights(
+            normalized.checkInDate,
+            normalized.checkOutDate,
+          );
           createdBooking = {
-            id: createId('booking'),
+            id: createId("booking"),
             code: bookingCode(),
             userId: user.id,
             roomId: room.id,
@@ -685,65 +962,78 @@ export function createMockApi() {
             nightlyRate: room.pricePerNight,
             totalPrice: nights * room.pricePerNight,
             specialRequests: normalized.specialRequests,
-            status: 'confirmed',
+            status: "confirmed",
             createdAt: new Date().toISOString(),
             cancellationReason: null,
             idempotencyKey,
-          }
-          state.bookings.push(createdBooking)
+          };
+          state.bookings.push(createdBooking);
           state.notifications.push(
             makeNotification(user.id, {
-              title: 'Đặt phòng thành công',
+              title: "Đặt phòng thành công",
               message: `Đơn ${createdBooking.code} cho phòng ${room.name} đã được xác nhận.`,
-              type: 'booking_confirmed',
+              type: "booking_confirmed",
             }),
-          )
-          return state
-        })
+          );
+          return state;
+        });
 
-        return presentBooking(readMockState(), createdBooking)
+        return presentBooking(readMockState(), createdBooking);
       },
 
       async mine(filters = {}) {
-        const user = requireUser()
-        const state = readMockState()
-        const status = normalizeText(filters.status).toLowerCase()
+        const user = requireUser();
+        const state = readMockState();
+        const status = normalizeText(filters.status).toLowerCase();
         const bookings = state.bookings
           .filter((booking) => booking.userId === user.id)
           .filter((booking) => !status || booking.status === status)
           .sort(compareNewest)
-          .map((booking) => presentBooking(state, booking))
-        return paginated(bookings, filters, 10)
+          .map((booking) => presentBooking(state, booking));
+        return paginated(bookings, filters, 10);
       },
 
       async getById(bookingId) {
-        const user = requireUser()
-        const state = readMockState()
-        const booking = findBooking(state, bookingId)
-        ensureBookingAccess(booking, user)
+        const user = requireUser();
+        const state = readMockState();
+        const booking = findBooking(state, bookingId);
+        ensureBookingAccess(booking, user);
         return presentBooking(state, booking, {
-          includeUser: user.role === 'admin',
-          allowAdminCancellation: user.role === 'admin',
-        })
+          includeUser: user.role === "admin",
+          allowAdminCancellation: user.role === "admin",
+          includeReviewState: true,
+        });
       },
 
       async adminList(filters = {}) {
-        requireAdmin()
-        const state = readMockState()
-        const status = normalizeText(filters.status).toLowerCase()
-        const query = normalizeText(filters.query ?? filters.search).toLowerCase()
+        requireAdmin();
+        const state = readMockState();
+        const status = normalizeText(filters.status).toLowerCase();
+        const query = normalizeText(
+          filters.query ?? filters.search,
+        ).toLowerCase();
         const bookings = state.bookings
           .filter((booking) => !status || booking.status === status)
-          .filter((booking) => !filters.roomId || booking.roomId === filters.roomId)
-          .filter((booking) => !filters.userId || booking.userId === filters.userId)
+          .filter(
+            (booking) => !filters.roomId || booking.roomId === filters.roomId,
+          )
+          .filter(
+            (booking) => !filters.userId || booking.userId === filters.userId,
+          )
           .filter((booking) => {
-            if (!query) return true
-            const room = state.rooms.find(({ id }) => id === booking.roomId)
-            const user = state.users.find(({ id }) => id === booking.userId)
-            return [booking.code, room?.name, room?.roomNumber, user?.fullName, user?.email]
-              .join(' ')
+            if (!query) return true;
+            const room = state.rooms.find(({ id }) => id === booking.roomId);
+            const user = state.users.find(({ id }) => id === booking.userId);
+            return [
+              booking.code,
+              room?.name,
+              room?.roomNumber,
+              user?.fullName,
+              user?.email,
+            ]
+              .join(" ")
               .toLowerCase()
-              .includes(query)
+              .includes(query);
           })
           .sort(compareNewest)
           .map((booking) =>
@@ -751,103 +1041,282 @@ export function createMockApi() {
               includeUser: true,
               allowAdminCancellation: true,
             }),
-          )
-        return paginated(bookings, filters, 20)
+          );
+        return paginated(bookings, filters, 20);
       },
 
       cancelMine(bookingId, options = {}) {
-        return cancelMockBooking(bookingId, options)
+        return cancelMockBooking(bookingId, options);
       },
 
       cancelAdmin(bookingId, options = {}) {
-        return cancelMockBooking(bookingId, options, { admin: true })
+        return cancelMockBooking(bookingId, options, { admin: true });
       },
 
       cancel(bookingId, options = {}) {
         return options?.asAdmin || options?.admin
           ? cancelMockBooking(bookingId, options, { admin: true })
-          : cancelMockBooking(bookingId, options)
+          : cancelMockBooking(bookingId, options);
       },
 
       async listOutbox() {
-        requireAdmin()
-        return collection([])
+        requireAdmin();
+        return collection([]);
       },
 
       async retryOutbox() {
-        requireAdmin()
-        return collection([])
+        requireAdmin();
+        return collection([]);
+      },
+    },
+
+    reviews: {
+      async listForRoom(roomId, filters = {}) {
+        const state = readMockState();
+        findRoom(state, roomId);
+        const visible = state.reviews
+          .filter(
+            (review) => review.roomId === roomId && review.status === "visible",
+          )
+          .sort(compareNewest);
+        const rating = Number(filters.rating);
+        const filtered = rating
+          ? visible.filter((review) => review.rating === rating)
+          : visible;
+        const result = paginated(
+          filtered.map((review) => presentReview(state, review)),
+          filters,
+          10,
+        );
+        return { ...result, summary: summarizeReviews(visible) };
+      },
+
+      async mine(filters = {}) {
+        const user = requireUser();
+        const state = readMockState();
+        const mine = state.reviews
+          .filter((review) => review.userId === user.id)
+          .sort(compareNewest)
+          .map((review) => presentReview(state, review));
+        return paginated(mine, filters, 10);
+      },
+
+      async getForBooking(bookingId) {
+        const user = requireUser();
+        const state = readMockState();
+        const booking = state.bookings.find(({ id }) => id === bookingId);
+        if (!booking || booking.userId !== user.id) {
+          throw apiError("Không tìm thấy lịch đặt", 404, "BOOKING_NOT_FOUND");
+        }
+        const review = state.reviews.find(
+          (item) => item.bookingId === bookingId,
+        );
+        if (!review)
+          throw apiError(
+            "Lịch đặt này chưa có đánh giá",
+            404,
+            "REVIEW_NOT_FOUND",
+          );
+        return presentReview(state, review);
+      },
+
+      async create(bookingId, payload = {}) {
+        const user = requireUser();
+        const values = validateReviewPayload(payload);
+        let created;
+
+        updateMockState((state) => {
+          const booking = state.bookings.find(({ id }) => id === bookingId);
+          if (!booking || booking.userId !== user.id) {
+            throw apiError("Không tìm thấy lịch đặt", 404, "BOOKING_NOT_FOUND");
+          }
+          if (booking.status !== "confirmed") {
+            throw apiError(
+              "Lịch đặt đã hủy nên không thể đánh giá",
+              409,
+              "BOOKING_NOT_REVIEWABLE",
+            );
+          }
+          if (!isReviewableBooking(booking)) {
+            throw apiError(
+              "Chỉ được đánh giá sau khi đã đến ngày trả phòng",
+              409,
+              "STAY_NOT_COMPLETED",
+            );
+          }
+          if (state.reviews.some((review) => review.bookingId === booking.id)) {
+            throw apiError(
+              "Lịch đặt này đã được đánh giá",
+              409,
+              "REVIEW_ALREADY_EXISTS",
+            );
+          }
+          const now = new Date().toISOString();
+          created = {
+            id: createId("review"),
+            bookingId: booking.id,
+            bookingCode: booking.code,
+            roomId: booking.roomId,
+            userId: user.id,
+            ...values,
+            status: "visible",
+            createdAt: now,
+            updatedAt: now,
+          };
+          state.reviews.push(created);
+          return state;
+        });
+
+        return presentReview(readMockState(), created);
+      },
+
+      async update(reviewId, payload = {}) {
+        const user = requireUser();
+        const values = validateReviewPayload(payload, { partial: true });
+        let updated;
+
+        updateMockState((state) => {
+          const review = findOwnReview(state, reviewId, user);
+          Object.assign(review, values, {
+            updatedAt: new Date().toISOString(),
+          });
+          updated = review;
+          return state;
+        });
+
+        return presentReview(readMockState(), updated);
+      },
+
+      async remove(reviewId) {
+        const user = requireUser();
+        updateMockState((state) => {
+          findOwnReview(state, reviewId, user);
+          state.reviews = state.reviews.filter(({ id }) => id !== reviewId);
+          return state;
+        });
+      },
+
+      async adminList(filters = {}) {
+        requireAdmin();
+        const state = readMockState();
+        const status = normalizeText(filters.status).toLowerCase();
+        const rating = Number(filters.rating);
+        const reviews = state.reviews
+          .filter((review) => !status || review.status === status)
+          .filter(
+            (review) => !filters.roomId || review.roomId === filters.roomId,
+          )
+          .filter((review) => !rating || review.rating === rating)
+          .sort(compareNewest)
+          .map((review) => presentReview(state, review, { admin: true }));
+        return paginated(reviews, filters, 20);
+      },
+
+      async adminSetStatus(reviewId, requestedStatus) {
+        requireAdmin();
+        const status = normalizeText(requestedStatus).toLowerCase();
+        if (!["visible", "hidden"].includes(status)) {
+          throw apiError(
+            "Dữ liệu đầu vào không hợp lệ",
+            400,
+            "VALIDATION_ERROR",
+          );
+        }
+        let updated;
+        updateMockState((state) => {
+          const review = state.reviews.find(({ id }) => id === reviewId);
+          if (!review)
+            throw apiError("Không tìm thấy đánh giá", 404, "REVIEW_NOT_FOUND");
+          review.status = status;
+          review.updatedAt = new Date().toISOString();
+          updated = review;
+          return state;
+        });
+        return presentReview(readMockState(), updated, { admin: true });
       },
     },
 
     notifications: {
       async mine() {
-        const user = requireUser()
+        const user = requireUser();
         return collection(
-          readMockState().notifications
-            .filter((notification) => notification.userId === user.id)
+          readMockState()
+            .notifications.filter(
+              (notification) => notification.userId === user.id,
+            )
             .sort(compareNewest),
-        )
+        );
       },
 
       async markRead(notificationId) {
-        const user = requireUser()
-        let updatedNotification
+        const user = requireUser();
+        let updatedNotification;
         updateMockState((state) => {
-          const notification = state.notifications.find(({ id }) => id === notificationId)
+          const notification = state.notifications.find(
+            ({ id }) => id === notificationId,
+          );
           if (!notification) {
-            throw apiError('Không tìm thấy thông báo.', 404, 'NOTIFICATION_NOT_FOUND')
+            throw apiError(
+              "Không tìm thấy thông báo.",
+              404,
+              "NOTIFICATION_NOT_FOUND",
+            );
           }
           if (notification.userId !== user.id) {
-            throw apiError('Bạn không có quyền cập nhật thông báo này.', 403, 'NOTIFICATION_FORBIDDEN')
+            throw apiError(
+              "Bạn không có quyền cập nhật thông báo này.",
+              403,
+              "NOTIFICATION_FORBIDDEN",
+            );
           }
-          notification.read = true
-          notification.readAt ??= new Date().toISOString()
-          updatedNotification = notification
-          return state
-        })
-        return clone(updatedNotification)
+          notification.read = true;
+          notification.readAt ??= new Date().toISOString();
+          updatedNotification = notification;
+          return state;
+        });
+        return clone(updatedNotification);
       },
 
       async markAllRead() {
-        const user = requireUser()
-        const readAt = new Date().toISOString()
-        let notifications
-        let updatedCount = 0
+        const user = requireUser();
+        const readAt = new Date().toISOString();
+        let notifications;
+        let updatedCount = 0;
         updateMockState((state) => {
           state.notifications.forEach((notification) => {
             if (notification.userId === user.id && !notification.read) {
-              notification.read = true
-              notification.readAt = readAt
-              updatedCount += 1
+              notification.read = true;
+              notification.readAt = readAt;
+              updatedCount += 1;
             }
-          })
+          });
           notifications = state.notifications
             .filter((notification) => notification.userId === user.id)
-            .sort(compareNewest)
-          return state
-        })
+            .sort(compareNewest);
+          return state;
+        });
         return {
           ...collection(notifications),
           attemptedCount: updatedCount,
           updatedCount,
           failedCount: 0,
           failures: [],
-        }
+        };
       },
     },
-  }
+  };
 }
 
-export const mockApi = createMockApi()
+export const mockApi = createMockApi();
 
 export function resetMockApi() {
-  registeredCredentials.clear()
-  clearApiSession()
+  registeredCredentials.clear();
+  clearApiSession();
   try {
-    if (typeof localStorage !== 'undefined') localStorage.removeItem('cloudstay.mock-session.v1')
+    if (typeof localStorage !== "undefined")
+      localStorage.removeItem("cloudstay.mock-session.v1");
   } catch {
     // The in-memory reset still succeeds when browser storage is unavailable.
   }
-  return resetMockState()
+  return resetMockState();
 }
