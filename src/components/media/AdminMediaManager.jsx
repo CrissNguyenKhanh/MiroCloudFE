@@ -10,6 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { api } from "../../api";
+import { invalidateRoomMedia } from "../../api/mediaCache";
 import { useToast } from "../../contexts/ToastContext";
 import {
   formatFileSize,
@@ -111,6 +112,7 @@ export default function AdminMediaManager({ room, onClose }) {
     setActionError("");
     try {
       await api.media.upload(room.id, { file: uploadFile, altText: uploadAlt.trim() });
+      invalidateRoomMedia(room.id);
       setUploadFile(null);
       setUploadAlt("");
       showToast("Đã tải ảnh/video lên phòng.");
@@ -143,6 +145,7 @@ export default function AdminMediaManager({ room, onClose }) {
         altText: String(draft.altText ?? "").trim(),
         sortOrder,
       });
+      invalidateRoomMedia(room.id);
       showToast("Đã cập nhật mô tả và thứ tự media.");
       await load();
     } catch (updateError) {
@@ -159,6 +162,7 @@ export default function AdminMediaManager({ room, onClose }) {
     setActionError("");
     try {
       await api.media.update(room.id, item.id, { isCover: true });
+      invalidateRoomMedia(room.id);
       showToast("Đã đặt ảnh bìa cho phòng.");
       await load();
     } catch (coverError) {
@@ -184,6 +188,7 @@ export default function AdminMediaManager({ room, onClose }) {
         file: replaceFile,
         altText: drafts[replaceTarget.id]?.altText,
       });
+      invalidateRoomMedia(room.id);
       setReplaceTarget(null);
       setReplaceFile(null);
       showToast(cleanupMessage(result) || "Đã thay file media.", result.storageCleanupPending ? "info" : "success");
@@ -200,6 +205,7 @@ export default function AdminMediaManager({ room, onClose }) {
     setActionError("");
     try {
       const result = await api.media.remove(room.id, deleteTarget.id);
+      invalidateRoomMedia(room.id);
       setDeleteTarget(null);
       showToast(cleanupMessage(result) || "Đã xóa media khỏi phòng.", result.storageCleanupPending ? "info" : "success");
       await load();

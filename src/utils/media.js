@@ -17,6 +17,52 @@ const allowedTypes = new Map([
   ["video/webm", "video"],
 ]);
 
+function mediaOrder(item) {
+  const value = Number(item?.sortOrder);
+  return Number.isFinite(value) ? value : Number.MAX_SAFE_INTEGER;
+}
+
+function hasUrl(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+export function sortRoomMedia(items = []) {
+  return [...items].sort(
+    (left, right) =>
+      Number(Boolean(right?.isCover)) - Number(Boolean(left?.isCover)) ||
+      mediaOrder(left) - mediaOrder(right),
+  );
+}
+
+export function selectRoomCardMedia(items = []) {
+  const ordered = sortRoomMedia(items);
+  const images = ordered.filter(
+    (item) => item?.mediaType?.toLowerCase() === "image" && hasUrl(item.url),
+  );
+  const image = images.find((item) => item.isCover) ?? images[0];
+  if (image) {
+    return {
+      ...image,
+      previewUrl: hasUrl(image.thumbnailUrl) ? image.thumbnailUrl : image.url,
+      originalUrl: image.url,
+      previewKind: "image",
+    };
+  }
+
+  const video = ordered.find(
+    (item) =>
+      item?.mediaType?.toLowerCase() === "video" && hasUrl(item.thumbnailUrl),
+  );
+  return video
+    ? {
+        ...video,
+        previewUrl: video.thumbnailUrl,
+        originalUrl: null,
+        previewKind: "video-thumbnail",
+      }
+    : null;
+}
+
 export function mediaTypeForFile(file) {
   return file ? allowedTypes.get(file.type) ?? null : null;
 }
