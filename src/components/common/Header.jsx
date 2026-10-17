@@ -1,93 +1,123 @@
-import { useEffect, useState } from 'react'
-import { Bell, ChevronDown, LogOut, Menu, ShieldCheck, UserRound, X } from 'lucide-react'
-import { NavLink, useNavigate } from 'react-router-dom'
-import { api } from '../../api'
-import { useAuth } from '../../contexts/AuthContext'
-import { useToast } from '../../contexts/ToastContext'
+import { useEffect, useState } from "react";
+import {
+  Bell,
+  ChevronDown,
+  LogOut,
+  Menu,
+  ShieldCheck,
+  Star,
+  UserRound,
+  X,
+} from "lucide-react";
+import { NavLink, useNavigate } from "react-router-dom";
+import { api } from "../../api";
+import { useAuth } from "../../contexts/AuthContext";
+import { useToast } from "../../contexts/ToastContext";
 import {
   createNotificationSocket,
   NOTIFICATION_CREATED_EVENT,
   NOTIFICATIONS_CHANGED_EVENT,
-} from '../../realtime/notificationSocket'
-import Brand from './Brand'
+} from "../../realtime/notificationSocket";
+import Brand from "./Brand";
 
-const NOTIFICATION_POLL_INTERVAL_MS = 60_000
+const NOTIFICATION_POLL_INTERVAL_MS = 60_000;
 
 const navItems = [
-  { to: '/', label: 'Trang chủ', end: true },
-  { to: '/rooms', label: 'Phòng' },
-  { to: '/bookings', label: 'Đơn của tôi', protected: true },
-  { to: '/notifications', label: 'Thông báo', protected: true },
-]
+  { to: "/", label: "Trang chủ", end: true },
+  { to: "/rooms", label: "Phòng" },
+  { to: "/bookings", label: "Đơn của tôi", protected: true },
+  { to: "/notifications", label: "Thông báo", protected: true },
+];
 
 export default function Header() {
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [accountOpen, setAccountOpen] = useState(false)
-  const [unreadCount, setUnreadCount] = useState(0)
-  const { user, isAuthenticated, isAdmin, logout } = useAuth()
-  const { showToast } = useToast()
-  const navigate = useNavigate()
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const { user, isAuthenticated, isAdmin, logout } = useAuth();
+  const { showToast } = useToast();
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (!isAuthenticated) {
-      setUnreadCount(0)
-      return undefined
+      setUnreadCount(0);
+      return undefined;
     }
 
-    let active = true
-    let latestRequest = 0
-    setUnreadCount(0)
+    let active = true;
+    let latestRequest = 0;
+    setUnreadCount(0);
 
     const refreshNotifications = async (signal) => {
-      const requestId = ++latestRequest
+      const requestId = ++latestRequest;
       try {
-        const result = await api.notifications.mine()
+        const result = await api.notifications.mine();
         if (active) {
           if (requestId === latestRequest) {
-            setUnreadCount(result.data.filter((notification) => notification.read === false).length)
+            setUnreadCount(
+              result.data.filter((notification) => notification.read === false)
+                .length,
+            );
           }
-          if (signal?.event_type === 'BOOKING_CANCELLED') {
-            const notification = result.data.find((item) => item.id === signal.notification_id)
-            const cancelledBy = notification?.payload?.cancelledBy
-            if (typeof cancelledBy === 'string' && cancelledBy.toUpperCase() === 'ADMIN') {
-              showToast('Đặt phòng của bạn đã bị quản trị viên hủy.', 'info')
+          if (signal?.event_type === "BOOKING_CANCELLED") {
+            const notification = result.data.find(
+              (item) => item.id === signal.notification_id,
+            );
+            const cancelledBy = notification?.payload?.cancelledBy;
+            if (
+              typeof cancelledBy === "string" &&
+              cancelledBy.toUpperCase() === "ADMIN"
+            ) {
+              showToast("Đặt phòng của bạn đã bị quản trị viên hủy.", "info");
             }
           }
         }
       } catch {
         // Header polling is best-effort. Keep the current count and avoid noisy toasts.
       }
-    }
+    };
 
     const handleNotificationCreated = (message) => {
-      window.dispatchEvent(new CustomEvent(NOTIFICATION_CREATED_EVENT, { detail: message }))
-      return refreshNotifications(message)
-    }
-    const handleNotificationsChanged = () => refreshNotifications()
+      window.dispatchEvent(
+        new CustomEvent(NOTIFICATION_CREATED_EVENT, { detail: message }),
+      );
+      return refreshNotifications(message);
+    };
+    const handleNotificationsChanged = () => refreshNotifications();
 
-    refreshNotifications()
-    const intervalId = window.setInterval(refreshNotifications, NOTIFICATION_POLL_INTERVAL_MS)
-    const socket = createNotificationSocket({ onNotification: handleNotificationCreated })
-    window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, handleNotificationsChanged)
+    refreshNotifications();
+    const intervalId = window.setInterval(
+      refreshNotifications,
+      NOTIFICATION_POLL_INTERVAL_MS,
+    );
+    const socket = createNotificationSocket({
+      onNotification: handleNotificationCreated,
+    });
+    window.addEventListener(
+      NOTIFICATIONS_CHANGED_EVENT,
+      handleNotificationsChanged,
+    );
 
     return () => {
-      active = false
-      window.clearInterval(intervalId)
-      window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, handleNotificationsChanged)
-      socket.close()
-    }
-  }, [isAuthenticated, showToast, user?.id])
+      active = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener(
+        NOTIFICATIONS_CHANGED_EVENT,
+        handleNotificationsChanged,
+      );
+      socket.close();
+    };
+  }, [isAuthenticated, showToast, user?.id]);
 
   const closeMenus = () => {
-    setMenuOpen(false)
-    setAccountOpen(false)
-  }
+    setMenuOpen(false);
+    setAccountOpen(false);
+  };
 
   const handleLogout = () => {
-    logout()
-    closeMenus()
-    navigate('/')
-  }
+    logout();
+    closeMenus();
+    navigate("/");
+  };
 
   return (
     <header className="site-header">
@@ -98,7 +128,7 @@ export default function Header() {
           type="button"
           aria-expanded={menuOpen}
           aria-controls="primary-navigation"
-          aria-label={menuOpen ? 'Đóng menu' : 'Mở menu'}
+          aria-label={menuOpen ? "Đóng menu" : "Mở menu"}
           onClick={() => setMenuOpen((open) => !open)}
         >
           {menuOpen ? <X /> : <Menu />}
@@ -106,11 +136,11 @@ export default function Header() {
 
         <nav
           id="primary-navigation"
-          className={`header__nav${menuOpen ? ' header__nav--open' : ''}`}
+          className={`header__nav${menuOpen ? " header__nav--open" : ""}`}
           aria-label="Điều hướng chính"
         >
           {navItems.map((item) => {
-            if (item.protected && !isAuthenticated) return null
+            if (item.protected && !isAuthenticated) return null;
             return (
               <NavLink
                 key={item.to}
@@ -118,12 +148,13 @@ export default function Header() {
                 end={item.end}
                 onClick={closeMenus}
                 className={({ isActive }) => {
-                  const badgeClass = item.to === '/notifications' ? ' nav-link--with-badge' : ''
-                  return `${isActive ? 'nav-link nav-link--active' : 'nav-link'}${badgeClass}`
+                  const badgeClass =
+                    item.to === "/notifications" ? " nav-link--with-badge" : "";
+                  return `${isActive ? "nav-link nav-link--active" : "nav-link"}${badgeClass}`;
                 }}
               >
                 <span>{item.label}</span>
-                {item.to === '/notifications' && unreadCount > 0 && (
+                {item.to === "/notifications" && unreadCount > 0 && (
                   <span
                     className="notification-badge"
                     aria-label={`${unreadCount} thông báo chưa đọc`}
@@ -132,7 +163,7 @@ export default function Header() {
                   </span>
                 )}
               </NavLink>
-            )
+            );
           })}
 
           {isAuthenticated ? (
@@ -143,8 +174,12 @@ export default function Header() {
                 aria-expanded={accountOpen}
                 onClick={() => setAccountOpen((open) => !open)}
               >
-                <span className="account-menu__avatar">{user.fullName?.charAt(0) ?? 'C'}</span>
-                <span className="account-menu__label">{user.fullName?.split(' ').at(-1)}</span>
+                <span className="account-menu__avatar">
+                  {user.fullName?.charAt(0) ?? "C"}
+                </span>
+                <span className="account-menu__label">
+                  {user.fullName?.split(" ").at(-1)}
+                </span>
                 <ChevronDown size={15} aria-hidden="true" />
               </button>
               {accountOpen && (
@@ -155,6 +190,9 @@ export default function Header() {
                   </div>
                   <NavLink to="/notifications" onClick={closeMenus}>
                     <Bell size={17} /> Thông báo
+                  </NavLink>
+                  <NavLink to="/reviews" onClick={closeMenus}>
+                    <Star size={17} /> Đánh giá của tôi
                   </NavLink>
                   {isAdmin && (
                     <NavLink to="/admin" onClick={closeMenus}>
@@ -168,12 +206,16 @@ export default function Header() {
               )}
             </div>
           ) : (
-            <NavLink className="button button--small button--navy" to="/login" onClick={closeMenus}>
+            <NavLink
+              className="button button--small button--navy"
+              to="/login"
+              onClick={closeMenus}
+            >
               <UserRound size={16} /> Đăng nhập
             </NavLink>
           )}
         </nav>
       </div>
     </header>
-  )
+  );
 }
