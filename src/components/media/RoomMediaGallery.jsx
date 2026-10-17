@@ -1,15 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Expand, ImageOff, Play, RotateCcw, X } from "lucide-react";
 import { api } from "../../api";
+import { sortRoomMedia } from "../../utils/media";
 import RoomVisual from "../rooms/RoomVisual";
-
-function sortMedia(items) {
-  return [...items].sort(
-    (left, right) =>
-      Number(right.isCover) - Number(left.isCover) ||
-      Number(left.sortOrder ?? 0) - Number(right.sortOrder ?? 0),
-  );
-}
 
 function PlaceholderGallery({ room }) {
   const palette =
@@ -39,7 +32,7 @@ export default function RoomMediaGallery({ room }) {
     try {
       const result = await api.media.listForRoom(room.id);
       if (requestId !== requestRef.current) return;
-      const ordered = sortMedia(result.data);
+      const ordered = sortRoomMedia(result.data);
       setMedia(ordered);
       setSelectedId((current) =>
         ordered.some((item) => item.id === current) ? current : ordered[0]?.id ?? null,
@@ -138,4 +131,4 @@ export default function RoomMediaGallery({ room }) {
   );
 }
 
-export { PlaceholderGallery, sortMedia };
+export { PlaceholderGallery };

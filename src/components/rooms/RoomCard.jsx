@@ -1,13 +1,13 @@
 import { ArrowUpRight, BedDouble, Maximize2, UsersRound } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { formatCurrency } from '../../utils/date'
-import RoomVisual from './RoomVisual'
+import RoomCardImage from './RoomCardImage'
 
 export default function RoomCard({ room, search = '' }) {
   return (
     <article className="room-card">
       <Link className="room-card__image-link" to={`/rooms/${room.id}${search}`} aria-label={`Xem ${room.name}`}>
-        <RoomVisual room={room} />
+        <RoomCardImage room={room} />
         {room.featured && <span className="room-card__tag">Được yêu thích</span>}
       </Link>
       <div className="room-card__body">
