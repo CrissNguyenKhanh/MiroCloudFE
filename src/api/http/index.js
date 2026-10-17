@@ -2,7 +2,9 @@ import { createHttpClient } from "../client";
 import { apiConfig } from "../config";
 import { createBookingsHttpApi } from "./bookings";
 import { createIdentityHttpApi } from "./identity";
+import { createMediaHttpApi } from "./media";
 import { createNotificationsHttpApi } from "./notifications";
+import { createPaymentsHttpApi } from "./payments";
 import { createReviewsHttpApi } from "./reviews";
 import { createRoomsHttpApi } from "./rooms";
 
@@ -25,6 +27,8 @@ export function createHttpApi(config = apiConfig) {
     identity: createIdentityHttpApi(identityRequest),
     rooms: createRoomsHttpApi(bookingRequest),
     bookings: createBookingsHttpApi(bookingRequest),
+    payments: createPaymentsHttpApi(bookingRequest),
+    media: createMediaHttpApi(bookingRequest),
     reviews: createReviewsHttpApi(bookingRequest),
     notifications: createNotificationsHttpApi(notificationRequest),
   };

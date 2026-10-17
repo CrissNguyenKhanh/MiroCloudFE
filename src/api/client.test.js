@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createHttpClient } from './client'
-import { getApiSession, setApiSession } from './session'
+import { clearApiSession, getApiSession, setApiSession } from './session'
 
 function response({ status, contentType, payload, jsonError }) {
   return {
@@ -15,6 +15,7 @@ function response({ status, contentType, payload, jsonError }) {
 describe('HTTP client response handling', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+    clearApiSession()
   })
 
   it('reads the backend error envelope', async () => {
@@ -80,6 +81,56 @@ describe('HTTP client response handling', () => {
     await expect(request('/api/v1/rooms')).rejects.toMatchObject({
       status: 200,
       code: 'INVALID_RESPONSE',
+    })
+  })
+
+  it('sends FormData directly, keeps auth and lets the browser set the multipart boundary', async () => {
+    setApiSession({ accessToken: 'upload-token', user: { id: 'admin-1' } })
+    const fetchMock = vi.fn().mockResolvedValue(
+      response({
+        status: 201,
+        contentType: 'application/json',
+        payload: { data: { id: 'media-1' } },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const body = new FormData()
+    body.append('file', new File(['image'], 'room.webp', { type: 'image/webp' }))
+    body.append('alt_text', 'Suite cover')
+
+    const request = createHttpClient({ baseUrl: 'https://example.test' })
+    await request('/api/v1/admin/rooms/room-1/media', { method: 'POST', body })
+
+    const options = fetchMock.mock.calls[0][1]
+    expect(options.body).toBe(body)
+    expect(options.headers.get('Content-Type')).toBeNull()
+    expect(options.headers.get('Authorization')).toBe('Bearer upload-token')
+  })
+
+  it('can preserve entity envelope metadata for storage cleanup warnings', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        response({
+          status: 200,
+          contentType: 'application/json',
+          payload: {
+            data: { id: 'media-1', deleted: true },
+            storage_cleanup_pending: true,
+          },
+        }),
+      ),
+    )
+
+    const request = createHttpClient({ baseUrl: 'https://example.test' })
+    await expect(
+      request('/api/v1/admin/rooms/room-1/media/media-1', {
+        method: 'DELETE',
+        preserveEnvelope: true,
+      }),
+    ).resolves.toEqual({
+      data: { id: 'media-1', deleted: true },
+      storage_cleanup_pending: true,
     })
   })
 })

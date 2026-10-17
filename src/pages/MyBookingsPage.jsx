@@ -20,14 +20,13 @@ import {
 } from "../components/common/States";
 import BookingReviewPanel from "../components/reviews/BookingReviewPanel";
 import ReviewFormModal from "../components/reviews/ReviewFormModal";
+import PaymentStatusBadge from "../components/payments/PaymentStatusBadge";
 import RoomVisual from "../components/rooms/RoomVisual";
 import { useToast } from "../contexts/ToastContext";
 import { formatCurrency, formatDateVN } from "../utils/date";
 import { isReviewableBooking } from "../utils/review";
 
 const PAGE_SIZE = 10;
-// The booking list has no review flag, so reviews are looked up once per page (backend max 50).
-const REVIEW_LOOKUP_LIMIT = 50;
 const tabs = [
   { value: "all", label: "Tất cả", filters: {} },
   {
@@ -71,17 +70,19 @@ export default function MyBookingsPage() {
       let reviewMap = {};
       let reviewLookupFailed = false;
       if (result.data.some((booking) => isReviewableBooking(booking))) {
-        try {
-          const reviewResult = await api.reviews.mine({
-            page: 1,
-            limit: REVIEW_LOOKUP_LIMIT,
-          });
-          reviewMap = Object.fromEntries(
-            reviewResult.data.map((review) => [review.bookingId, review]),
-          );
-        } catch {
-          reviewLookupFailed = true;
-        }
+        const candidates = result.data.filter((booking) =>
+          isReviewableBooking(booking),
+        );
+        const settled = await Promise.allSettled(
+          candidates.map((booking) => api.reviews.getForBooking(booking.id)),
+        );
+        settled.forEach((lookup, index) => {
+          if (lookup.status === "fulfilled") {
+            reviewMap[candidates[index].id] = lookup.value;
+          } else if (lookup.reason?.code !== "REVIEW_NOT_FOUND") {
+            reviewLookupFailed = true;
+          }
+        });
         if (requestId !== requestIdRef.current) return;
       }
       setBookings(result.data);
@@ -293,6 +294,7 @@ export default function MyBookingsPage() {
                             {booking.code}
                           </span>
                           <StatusBadge status={booking.status} />
+                          <PaymentStatusBadge status={booking.paymentStatus} />
                         </div>
                         <div>
                           <span className="eyebrow">
@@ -356,11 +358,11 @@ export default function MyBookingsPage() {
                         <div className="booking-card__actions">
                           <Link
                             className="text-link"
-                            to={`/rooms/${booking.roomId}`}
+                            to={`/booking/success/${booking.id}`}
                           >
-                            Xem phòng
+                            Xem chi tiết & thanh toán
                           </Link>
-                          {booking.canCancel && (
+                          {booking.canCancel && booking.paymentStatus !== "succeeded" && (
                             <button
                               type="button"
                               className="text-button text-button--danger"

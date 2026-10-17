@@ -26,8 +26,8 @@ import {
   LoadingState,
 } from "../components/common/States";
 import RoomReviews from "../components/reviews/RoomReviews";
+import RoomMediaGallery from "../components/media/RoomMediaGallery";
 import RoomCard from "../components/rooms/RoomCard";
-import RoomVisual from "../components/rooms/RoomVisual";
 import {
   formatCurrency,
   formatDateVN,
@@ -201,10 +201,6 @@ export default function RoomDetailPage() {
       </div>
     );
 
-  const palette =
-    Array.isArray(room.palette) && room.palette.length >= 3
-      ? room.palette
-      : ["#9bb8b3", "#eadbc2", "#244f5d"];
   const amenities = Array.isArray(room.amenities) ? room.amenities : [];
   const unavailableDates = availability.unavailableDates ?? [];
   const detailSearch = `?${checkoutQuery}`;
@@ -217,25 +213,7 @@ export default function RoomDetailPage() {
         </Link>
       </div>
       <section className="container room-detail__hero">
-        <div className="room-detail__visual-grid">
-          <RoomVisual room={room} className="room-visual--detail" />
-          <RoomVisual
-            room={{
-              ...room,
-              view: "Góc thư giãn",
-              palette: [palette[1], palette[0], palette[2]],
-            }}
-            className="room-visual--secondary"
-          />
-          <RoomVisual
-            room={{
-              ...room,
-              view: "Phòng tắm",
-              palette: [palette[0], "#f1ece2", "#46626a"],
-            }}
-            className="room-visual--secondary"
-          />
-        </div>
+        <RoomMediaGallery room={room} />
         <div className="room-detail__intro">
           <div>
             <span className="eyebrow">

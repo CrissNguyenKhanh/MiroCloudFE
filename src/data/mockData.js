@@ -238,6 +238,8 @@ export function createSeedState() {
         idempotencyKey: "seed-stayed-river",
       },
     ],
+    payments: [],
+    media: [],
     reviews: [
       {
         id: "review-seed-river",

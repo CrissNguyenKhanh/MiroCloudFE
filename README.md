@@ -41,7 +41,7 @@ Nền tảng đặt phòng khách sạn xây dựng theo kiến trúc microservi
 
 ## Overview
 
-CloudStay mô phỏng một hệ thống đặt phòng khách sạn hoàn chỉnh: khách hàng có thể tìm phòng theo kỳ nghỉ, kiểm tra tình trạng trống, tạo hoặc hủy booking và nhận thông báo; quản trị viên có thể vận hành phòng, booking, tài khoản, thông báo và outbox.
+CloudStay mô phỏng một hệ thống đặt phòng khách sạn hoàn chỉnh: khách hàng có thể tìm phòng, đặt phòng, thanh toán MOCK, đánh giá và nhận thông báo; quản trị viên có thể vận hành phòng, media, booking, review, tài khoản, thông báo và outbox.
 
 Dự án tập trung vào các bài toán Cloud Computing có thể kiểm chứng trong source code:
 
@@ -58,11 +58,11 @@ Hai thay đổi tích hợp gần nhất — [frontend PR #7](https://github.com
 
 | Resource | Trạng thái đã xác minh | Link |
 | --- | --- | --- |
-| CloudStay frontend | HTTP 200, đúng nội dung CloudStay | [Mở ứng dụng](https://mirocloudfe.pages.dev) |
+| CloudStay frontend | HTTP 200; Real API đang bị chặn bởi origin mismatch | [Mở ứng dụng](https://mirocloudfe.pages.dev) |
 | Frontend source | Repository hiện tại, BSD-3-Clause | [MiroCloudFE](https://github.com/CrissNguyenKhanh/MiroCloudFE) |
 | Backend source | Identity, Booking, Notification | [cloud-room-booking](https://github.com/CrissNguyenKhanh/cloud-room-booking) |
 
-Live deployment đang cấu hình **Real API Mode** với ba Render service. Frontend và các endpoint `/health`, `/ready` được kiểm tra thành công ngày **10/10/2026**; kiểm tra này không tạo booking, chạy migration hay thay đổi dữ liệu.
+Frontend và ba endpoint `/ready` được kiểm tra read-only thành công ngày **17/10/2026**. Tuy nhiên, ba service hiện allow origin `https://cloudstay-docker-fe.pages.dev`, không phải URL frontend tham chiếu `https://mirocloudfe.pages.dev`; REST và WebSocket Real API sẽ bị browser chặn cho đến khi cấu hình deployment được thống nhất. Kiểm tra này không tạo booking, chạy migration hay thay đổi dữ liệu.
 
 ## Feature Overview
 
@@ -72,13 +72,16 @@ Live deployment đang cấu hình **Real API Mode** với ba Render service. Fro
 - Tìm phòng theo ngày nhận/trả, số khách, hạng phòng, khoảng giá và phân trang.
 - Xem chi tiết kỳ nghỉ, giá dự kiến, ngày không khả dụng và phương án thay thế.
 - Đặt phòng với `Idempotency-Key`, chống double-submit và xử lý riêng conflict, timeout hoặc key reuse.
+- Thanh toán mô phỏng theo amount authoritative của backend, có reconciliation và trạng thái rõ ràng.
 - Xem kết quả theo booking ID, quản lý danh sách booking và hủy khi còn đủ điều kiện.
+- Xem gallery ảnh/video của phòng, rating/review công khai và quản lý đánh giá đủ điều kiện.
 - Nhận notification qua REST kết hợp WebSocket, có polling fallback khi realtime gián đoạn.
 
 ### Admin Experience
 
 - Dashboard nêu rõ phạm vi dữ liệu đang tải, không suy diễn doanh thu hoặc thống kê toàn hệ thống.
 - Thêm, sửa, tạm ngừng và kích hoạt lại phòng từ inventory gồm cả active/inactive.
+- Upload, thay thế, sắp xếp, đặt ảnh bìa và xóa ảnh/video của phòng.
 - Lọc booking theo trạng thái, room UUID, user UUID; hủy booking với lý do bắt buộc.
 - Xem người dùng và chuyển trạng thái `ACTIVE`/`LOCKED` sau bước xác nhận.
 - Theo dõi notification dành cho admin và đánh dấu đã đọc.
@@ -86,7 +89,7 @@ Live deployment đang cấu hình **Real API Mode** với ba Render service. Fro
 
 ### Engineering Features
 
-- Mock/HTTP adapter dùng chung một API facade; Real API Mode không tự fallback sang mock.
+- Mock/HTTP adapter dùng chung một API facade cho booking, Payment MOCK, review và media; Real API Mode không tự fallback sang mock.
 - Mapping contract `snake_case` ↔ `camelCase`, giữ metadata phân trang và các giá trị `0`/`false`.
 - JWT authentication, role-based routes, ownership và authorization do backend quyết định.
 - Idempotent booking, database overlap protection và transactional outbox.
@@ -200,7 +203,7 @@ Vite giữ vòng lặp phát triển frontend gọn; PostgreSQL cung cấp trans
 
 ### Mock Mode — chạy frontend độc lập
 
-`.env.example` mặc định dùng mock, không kết nối Neon hoặc backend thật.
+`.env.example` mô tả Real Render mode. Để chạy offline, tạo thêm `.env.local` (đã gitignore) với `VITE_USE_MOCK_API=true`; không cần sửa hoặc commit `.env.example`.
 
 ```powershell
 git clone https://github.com/CrissNguyenKhanh/MiroCloudFE.git
@@ -235,11 +238,11 @@ Real mode không fallback sang mock khi API lỗi. Timeout/network trong lúc t�
 
 | Variable | Default example | Required in real mode | Purpose |
 | --- | --- | --- | --- |
-| `VITE_USE_MOCK_API` | `true` | Yes | Chỉ chuỗi `false` mới bật HTTP adapter; giá trị khác dùng mock |
-| `VITE_IDENTITY_API_URL` | `http://localhost:3001` | Yes | Origin của Identity Service |
-| `VITE_BOOKING_API_URL` | `http://localhost:3002` | Yes | Origin của Booking Service |
-| `VITE_NOTIFICATION_API_URL` | `http://localhost:3003` | Yes | Origin REST; frontend chuyển sang `ws://`/`wss://` cho `/ws` |
-| `VITE_API_TIMEOUT_MS` | `10000` | No | Request timeout theo mili giây; giá trị không hợp lệ dùng 10 giây |
+| `VITE_USE_MOCK_API` | `false` | Yes | Chuỗi `false` bật HTTP adapter; đặt `true` trong `.env.local` để demo offline |
+| `VITE_IDENTITY_API_URL` | `https://cloudstay-docker-identity.onrender.com` | Yes | Origin của Identity Service |
+| `VITE_BOOKING_API_URL` | `https://cloudstay-docker-booking.onrender.com` | Yes | Origin của Booking Service |
+| `VITE_NOTIFICATION_API_URL` | `https://cloudstay-docker-notification.onrender.com` | Yes | Origin REST; frontend chuyển HTTPS thành WSS cho `/ws` |
+| `VITE_API_TIMEOUT_MS` | `30000` | No | Request timeout theo mili giây |
 
 > [!IMPORTANT]
 > Mọi biến `VITE_*` được nhúng vào browser bundle và phải được xem là **public**. Không đặt JWT secret, database URL, password, `INTERNAL_SERVICE_KEY` hoặc private token trong frontend `.env`. File `.env` đã được gitignore; chỉ `.env.example` dùng placeholder được commit.
@@ -275,7 +278,7 @@ MiroCloudFE/
 └── vite.config.js
 ```
 
-`docs/backend-integration.md` là snapshot contract chi tiết ngày 09/10/2026; source trên `main` và README này mới hơn ở phần Admin Rooms/Admin Booking filters. `docs/cloudflare-pages.md` vẫn hữu ích như runbook cấu hình, còn trạng thái live được xác minh độc lập ở phần Deployment bên dưới.
+`docs/backend-integration.md` là snapshot contract chi tiết tại backend commit `c2a1e93` ngày 17/10/2026. `docs/cloudflare-pages.md` là runbook cấu hình và ghi rõ blocker origin hiện tại.
 
 ## Testing
 
@@ -295,7 +298,7 @@ git diff --check
 | Service/CI | Node test runner + Supertest + GitHub Actions | Backend tests, syntax checks và Docker build theo từng service |
 | Manual E2E | Checklist | Real Identity → Booking → Notification với database test riêng |
 
-Baseline frontend được chạy lại khi cập nhật tài liệu này: **18 test files / 84 tests PASS**, production build PASS. Backend `main` cũng có [CI run đã xác minh thành công](https://github.com/CrissNguyenKhanh/cloud-room-booking/actions/runs/38060937666): 79 service tests, syntax checks và ba Docker image build đều PASS. Test frontend ép facade sang mock và mock Fetch cho contract tests; nó không ghi vào backend hoặc Neon thật. Repository frontend hiện chưa có lint/typecheck script, browser E2E suite hay GitHub Actions workflow.
+Regression frontend ngày 17/10/2026: **24 test files / 113 tests PASS** và production build PASS. Test frontend ép facade sang mock và mock Fetch cho contract tests; nó không ghi vào backend hoặc Neon thật. Backend không được chạy lại hoặc thay đổi trong lượt tích hợp frontend này. Repository frontend hiện chưa có lint/typecheck script, browser E2E suite hay GitHub Actions workflow.
 
 Các lệnh bổ sung:
 
@@ -310,14 +313,14 @@ npm run preview          # Preview dist sau npm run build
 | Component | Platform | Cloud model | Verified state |
 | --- | --- | --- | --- |
 | Frontend SPA | Cloudflare Pages | Static hosting / PaaS | [Live demo](https://mirocloudfe.pages.dev) trả HTTP 200 |
-| Identity Service | Render | PaaS | [`/health`](https://miro-identity.onrender.com/health) và `/ready` trả HTTP 200 |
-| Booking Service | Render | PaaS | [`/health`](https://miro-booking.onrender.com/health) và `/ready` trả HTTP 200 |
-| Notification Service | Render | PaaS | [`/health`](https://miro-notification.onrender.com/health) và `/ready` trả HTTP 200 |
+| Identity Service | Render | PaaS | [`/ready`](https://cloudstay-docker-identity.onrender.com/ready) trả HTTP 200 |
+| Booking Service | Render | PaaS | [`/ready`](https://cloudstay-docker-booking.onrender.com/ready) trả HTTP 200 |
+| Notification Service | Render | PaaS | [`/ready`](https://cloudstay-docker-notification.onrender.com/ready) trả HTTP 200 |
 | PostgreSQL | Neon (theo deployment configuration) | Managed database / DBaaS | `/ready` xác nhận DB reachable; provider settings không được public |
 
 Frontend build bằng `npm run build` và xuất static assets vào `dist`. Hướng dẫn cấu hình Pages nằm tại [docs/cloudflare-pages.md](docs/cloudflare-pages.md). Backend có Dockerfile riêng cho mỗi service và hướng dẫn Render/Neon trong [cloud deployment guide](https://github.com/CrissNguyenKhanh/cloud-room-booking/blob/main/docs/cloud-deployment.md).
 
-Các kiểm tra trên chỉ xác nhận endpoint hoạt động tại thời điểm audit; repository frontend không chứa Cloudflare project settings, Render blueprint hoặc deployment commit SHA. Dự án cũng không tuyên bố autoscaling, load balancing, multi-region hay high availability.
+Các kiểm tra trên chỉ xác nhận endpoint hoạt động tại thời điểm audit; repository frontend không chứa Cloudflare project settings, Render blueprint hoặc deployment commit SHA. Production branch `main` là cấu hình dự kiến và chưa được xác minh trong Cloudflare Dashboard. REST/WebSocket Real API tại `mirocloudfe.pages.dev` còn bị chặn bởi CORS/origin mismatch; xem [runbook Cloudflare](docs/cloudflare-pages.md).
 
 ## Security Considerations
 
@@ -331,8 +334,9 @@ Các kiểm tra trên chỉ xác nhận endpoint hoạt động tại thời đi
 
 ## Current Limitations
 
-- Chưa tích hợp online payment, refund hoặc accounting/revenue thực thu.
-- Real API chưa lưu phone/profile, special requests hoặc upload ảnh; UI dùng SVG nội bộ làm room visual.
+- Payment chỉ dùng provider `MOCK`; chưa có payment tiền thật, refund, webhook hoặc accounting/revenue thực thu.
+- Real API chưa lưu phone/profile hoặc special requests.
+- Media gallery và admin CRUD đã tích hợp, nhưng upload Cloudinary thật chưa được E2E do audit không dùng admin credential; khi phòng chưa có media UI dùng RoomVisual fallback.
 - Chưa có refresh token và reset-password flow; access token hết hạn yêu cầu đăng nhập lại.
 - Notification API chưa có read-all; frontend gọi mark-read từng item và báo partial failure nếu cần.
 - Outbox có retry metadata/backoff nhưng chưa có background worker; admin phải kích hoạt batch retry.
@@ -342,6 +346,7 @@ Các kiểm tra trên chỉ xác nhận endpoint hoạt động tại thời đi
 - `/ready` của mỗi service chỉ kiểm tra database riêng; Booking readiness chưa probe Identity hoặc Notification downstream.
 - Backend chưa có rate limiting hoặc session revocation; khóa tài khoản không thu hồi ngay JWT đã phát hành.
 - Frontend chưa có Playwright/Cypress E2E, lint/typecheck script hoặc CI workflow riêng.
+- CORS và WebSocket origin trên Render chưa khớp `https://mirocloudfe.pages.dev`; cần người quản trị cập nhật cấu hình trước khi công bố Real API production-ready.
 
 Ảnh chụp giao diện chưa được commit trong repository, nên README không dùng placeholder hoặc stock image. Khi bổ sung preview, nên chụp Home, Search, Room Detail, Checkout/Result, My Bookings, Notifications và Admin Dashboard/Rooms/Bookings bằng dữ liệu demo đã ẩn thông tin nhạy cảm.
 

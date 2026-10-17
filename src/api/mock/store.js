@@ -17,7 +17,13 @@ export function readMockState() {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed?.version === 2 && Array.isArray(parsed.rooms)) return parsed;
+        if (parsed?.version === 2 && Array.isArray(parsed.rooms)) {
+          return writeMockState({
+            ...parsed,
+            payments: Array.isArray(parsed.payments) ? parsed.payments : [],
+            media: Array.isArray(parsed.media) ? parsed.media : [],
+          });
+        }
       }
     } catch {
       try {
@@ -29,6 +35,8 @@ export function readMockState() {
   }
 
   if (!memoryState) memoryState = createSeedState();
+  memoryState.payments ??= [];
+  memoryState.media ??= [];
   writeMockState(memoryState);
   return structuredClone(memoryState);
 }

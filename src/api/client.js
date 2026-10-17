@@ -35,8 +35,10 @@ export function createHttpClient({ baseUrl, timeoutMs = 10_000 }) {
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     const token = getApiSession().accessToken;
     const headers = new Headers(options.headers);
+    const isFormData =
+      typeof FormData !== "undefined" && options.body instanceof FormData;
     headers.set("Accept", "application/json");
-    if (options.body !== undefined)
+    if (options.body !== undefined && !isFormData)
       headers.set("Content-Type", "application/json");
     if (token) headers.set("Authorization", `Bearer ${token}`);
 
@@ -45,7 +47,11 @@ export function createHttpClient({ baseUrl, timeoutMs = 10_000 }) {
         method: options.method ?? "GET",
         headers,
         body:
-          options.body === undefined ? undefined : JSON.stringify(options.body),
+          options.body === undefined
+            ? undefined
+            : isFormData
+              ? options.body
+              : JSON.stringify(options.body),
         signal: controller.signal,
       });
 
@@ -99,6 +105,7 @@ export function createHttpClient({ baseUrl, timeoutMs = 10_000 }) {
         !Array.isArray(payload) &&
         Object.prototype.hasOwnProperty.call(payload, "data")
       ) {
+        if (options.preserveEnvelope) return payload;
         if (Object.prototype.hasOwnProperty.call(payload, "meta")) {
           const { data, meta, ...extra } = payload;
           return { ...extra, data, meta };

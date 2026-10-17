@@ -1,6 +1,6 @@
 # Deploy CloudStay lên Cloudflare Pages
 
-Tài liệu được kiểm tra theo hướng dẫn chính thức ngày **05/10/2026**. Chỉ hướng dẫn được tạo; dự án này không tự kết nối tài khoản hoặc deploy.
+Tài liệu được đối chiếu với source và các endpoint public ngày **17/10/2026**. Repository này không tự kết nối tài khoản hoặc deploy.
 
 > Cloudflare hiện định hướng Workers cho phần lớn dự án mới, nhưng Pages và Git integration vẫn được hỗ trợ và có tài liệu chính thức. Vì mục tiêu của đồ án là Cloudflare Pages, cấu hình dưới đây vẫn phù hợp.
 
@@ -8,7 +8,7 @@ Tài liệu được kiểm tra theo hướng dẫn chính thức ngày **05/10/
 
 | Trường | Giá trị |
 | --- | --- |
-| Production branch | `main` |
+| Production branch | `main` (giá trị dự kiến; chưa xác minh trong Cloudflare Dashboard) |
 | Framework preset | `React (Vite)` |
 | Build command | `npm run build` |
 | Build output directory | `dist` |
@@ -36,14 +36,14 @@ Một Pages project tạo bằng Git integration không thể đổi trực ti�
 Thêm trong Pages project settings, tách giá trị Production và Preview:
 
 ```text
-VITE_USE_MOCK_API=true
-VITE_IDENTITY_API_URL=https://identity.example.com
-VITE_BOOKING_API_URL=https://booking.example.com
-VITE_NOTIFICATION_API_URL=https://notification.example.com
-VITE_API_TIMEOUT_MS=10000
+VITE_USE_MOCK_API=false
+VITE_IDENTITY_API_URL=https://cloudstay-docker-identity.onrender.com
+VITE_BOOKING_API_URL=https://cloudstay-docker-booking.onrender.com
+VITE_NOTIFICATION_API_URL=https://cloudstay-docker-notification.onrender.com
+VITE_API_TIMEOUT_MS=30000
 ```
 
-Khuyến nghị deploy demo đầu tiên với `VITE_USE_MOCK_API=true` vì backend hiện chưa có contract khách sạn.
+Các URL trên đã trả `/ready` thành công ngày 17/10/2026. Nếu cần demo offline, tạo `.env.local` với `VITE_USE_MOCK_API=true`; file này đã được gitignore và không được dùng cho production matching.
 
 Vite thay thế `VITE_*` ở **build time** và nhúng vào JavaScript browser. Đây là dữ liệu công khai, luôn được đọc như chuỗi. Không đặt password, database URL có credential, service key, private token hoặc JWT signing secret ở đây.
 
@@ -65,13 +65,36 @@ Chỉ thêm `_redirects` khi có rule tùy chỉnh thật sự. Catch-all quá r
 
 CORS phải cấu hình ở từng backend service. Không có cách an toàn để “tắt CORS” từ React/browser.
 
-Backend nên allow chính xác:
+Backend phải allow chính xác:
 
 - production URL `https://<project>.pages.dev` và custom domain;
 - các preview origin cần thiết, hoặc một chiến lược preview an toàn;
 - methods/headers thực dùng, gồm `Authorization`, `Content-Type`, `Idempotency-Key`.
 
 Không dùng wildcard origin cùng credential.
+
+> [!CAUTION]
+> **Deployment hiện đang bị chặn bởi CORS/origin.** Kiểm tra read-only ngày 17/10/2026 cho thấy cả Identity, Booking và Notification Service đều trả `Access-Control-Allow-Origin: https://cloudstay-docker-fe.pages.dev`, trong khi URL frontend tham chiếu là `https://mirocloudfe.pages.dev`. Browser tại `mirocloudfe.pages.dev` sẽ chặn REST, và Notification WebSocket cũng từ chối origin không khớp. Đây không thể sửa từ React.
+
+Trước khi deploy bundle Real API, người quản trị cần xác nhận domain production thực sự và đặt `FRONTEND_ORIGIN` nhất quán trên cả ba Render service, sau đó redeploy và kiểm tra lại preflight/REST/WebSocket. Nếu production thực sự là `cloudstay-docker-fe.pages.dev`, cần cập nhật tài liệu và link public thay vì giữ hai origin khác nhau.
+
+Preview Pages có origin riêng nên cũng không đi qua allow-origin đơn hiện tại. Dùng backend preview cô lập với origin cố định, hoặc thay đổi backend thành allowlist được kiểm soát; không dùng CORS proxy, `no-cors` hay tắt xác thực.
+
+## Trạng thái smoke test public
+
+Các kiểm tra sau chỉ đọc, không tạo tài khoản/booking/payment/review/media và không thay đổi Neon:
+
+| Kiểm tra | Kết quả 17/10/2026 |
+| --- | --- |
+| Identity, Booking, Notification `/ready` | HTTP 200 |
+| `GET /api/v1/rooms` | HTTP 200, có dữ liệu phòng |
+| Public media của phòng mẫu | HTTP 200, collection rỗng |
+| Public reviews của phòng mẫu | HTTP 200, có summary và review visible |
+| `https://mirocloudfe.pages.dev` | HTTP 200 |
+| Deep link room detail, `/bookings`, `/admin/rooms` | HTTP 200 và trả SPA HTML |
+| Upload Cloudinary thật | Chưa chạy: cần admin credential và cấu hình server |
+
+Public Media API hoạt động ngay cả khi phòng chưa có media. CRUD/upload đã được kiểm thử bằng mocked Fetch và mock adapter; chưa được xem là Cloudinary E2E thật.
 
 ## Checklist sau deploy
 
@@ -80,7 +103,7 @@ Không dùng wildcard origin cùng credential.
 3. **Deep link:** dán trực tiếp `/rooms`, `/login`, một room detail và refresh để xác nhận SPA fallback.
 4. **Asset:** DevTools Console/Network không có lỗi module; JS/CSS trả `200` và không có mixed content.
 5. **Environment:** xác nhận app dùng mock hoặc API URL đúng môi trường.
-6. **Smoke test:** tìm phòng, validation ngày sai, login, route guard, đặt phòng, booking conflict, hủy, notification, admin và 404.
+6. **Smoke test:** kiểm tra CORS trước, sau đó tìm phòng, validation ngày sai, login, route guard, đặt phòng, Payment MOCK, review, media, booking conflict, hủy, notification, admin và 404 trên môi trường test cô lập.
 7. **Responsive:** kiểm tra desktop và viewport điện thoại; chú ý search form, room card, bảng admin và modal.
 8. **Preview:** test URL preview trước khi merge. Preview mặc định public; bật Access policy nếu dữ liệu không nên công khai.
 9. **Custom domain:** kiểm tra cả `pages.dev` và domain riêng để phân biệt lỗi app với DNS.

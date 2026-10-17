@@ -7,6 +7,8 @@ import {
   asCollection,
   normalizeBooking,
   normalizeNotification,
+  normalizeMedia,
+  normalizePayment,
   normalizeRoom,
   normalizeUser,
   toApi,
@@ -110,6 +112,27 @@ describe('HTTP contract mapping', () => {
       isBookable: false,
       featured: false,
       amenities: [],
+    })
+  })
+
+  it('normalizes backend payment, media and booking review/payment fields', () => {
+    expect(normalizePayment({
+      booking_id: 'booking-1', amount: '2500000', status: 'SUCCEEDED', provider: 'MOCK',
+    })).toMatchObject({
+      bookingId: 'booking-1', amount: 2_500_000, status: 'succeeded', provider: 'MOCK',
+    })
+    expect(normalizeMedia({
+      room_id: 'room-1', media_type: 'IMAGE', sort_order: '2', is_cover: false,
+      duration_seconds: null, alt_text: 'Balcony',
+    })).toMatchObject({
+      roomId: 'room-1', mediaType: 'image', sortOrder: 2, isCover: false,
+      durationSeconds: null, altText: 'Balcony',
+    })
+    expect(normalizeBooking({
+      id: 'booking-paid', status: 'CONFIRMED', payment_status: 'SUCCEEDED',
+      can_cancel: true, can_review: true, review_id: 'review-1',
+    })).toMatchObject({
+      paymentStatus: 'succeeded', canCancel: false, canReview: true, reviewId: 'review-1',
     })
   })
 })

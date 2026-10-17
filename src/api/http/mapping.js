@@ -154,6 +154,10 @@ export function normalizeBooking(payload) {
       : booking.status;
   const checkInDate = booking.checkInDate ?? booking.checkIn;
   const checkOutDate = booking.checkOutDate ?? booking.checkOut;
+  const paymentStatus =
+    typeof booking.paymentStatus === "string"
+      ? booking.paymentStatus.toLowerCase()
+      : booking.paymentStatus;
   const room = booking.room
     ? normalizeRoom(booking.room)
     : booking.roomId || booking.roomName || booking.roomNumber
@@ -190,12 +194,56 @@ export function normalizeBooking(payload) {
     room,
     user: booking.user ? normalizeUser(booking.user) : booking.user,
     status,
-    canCancel: canCustomerCancel({
-      ...booking,
-      canCancel: booleanOrOriginal(booking.canCancel),
-      checkInDate,
-      status,
-    }),
+    paymentStatus: paymentStatus ?? "unpaid",
+    canReview: booleanOrOriginal(booking.canReview),
+    reviewId: booking.reviewId ?? null,
+    canCancel:
+      paymentStatus === "succeeded"
+        ? false
+        : canCustomerCancel({
+            ...booking,
+            canCancel: booleanOrOriginal(booking.canCancel),
+            checkInDate,
+            status,
+          }),
+  };
+}
+
+export function normalizePayment(payload) {
+  const payment = unwrapEntity(payload, ["payment"]);
+  if (!isPlainObject(payment)) return payment ?? null;
+
+  return {
+    ...payment,
+    amount: numberOrOriginal(payment.amount),
+    status:
+      typeof payment.status === "string"
+        ? payment.status.toLowerCase()
+        : payment.status,
+    provider:
+      typeof payment.provider === "string"
+        ? payment.provider.toUpperCase()
+        : payment.provider,
+  };
+}
+
+export function normalizeMedia(payload) {
+  const media = unwrapEntity(payload, ["media"]);
+  if (!isPlainObject(media)) return media ?? null;
+
+  return {
+    ...media,
+    mediaType:
+      typeof media.mediaType === "string"
+        ? media.mediaType.toLowerCase()
+        : media.mediaType,
+    bytes: numberOrOriginal(media.bytes),
+    width: numberOrOriginal(media.width),
+    height: numberOrOriginal(media.height),
+    durationSeconds: numberOrOriginal(media.durationSeconds),
+    sortOrder: numberOrOriginal(media.sortOrder),
+    isCover: booleanOrOriginal(media.isCover),
+    altText: media.altText ?? "",
   };
 }
 

@@ -311,4 +311,56 @@ describe("mock API booking lifecycle", () => {
       (await api.reviews.adminList({ status: "hidden" })).data,
     ).toContainEqual(expect.objectContaining({ id: own.id }));
   });
+
+  it("pays once with idempotency and blocks cancellation after success", async () => {
+    await loginAsGuest();
+    const { checkInDate, checkOutDate } = futureStay(70);
+    const room = (await api.rooms.search({ checkIn: checkInDate, checkOut: checkOutDate, guests: 1 })).data[0];
+    const booking = await api.bookings.create(
+      { roomId: room.id, checkInDate, checkOutDate, guests: 1 },
+      { idempotencyKey: "payment-flow-booking" },
+    );
+
+    const first = await api.payments.create(booking.id, { idempotencyKey: "mock-payment-intent" });
+    const replay = await api.payments.create(booking.id, { idempotencyKey: "mock-payment-intent" });
+    expect(first).toMatchObject({ amount: booking.totalPrice, provider: "MOCK", status: "succeeded" });
+    expect(replay.id).toBe(first.id);
+    expect(await api.bookings.getById(booking.id)).toMatchObject({
+      paymentStatus: "succeeded",
+      canCancel: false,
+    });
+    await expect(api.bookings.cancelMine(booking.id)).rejects.toMatchObject({
+      code: "PAID_BOOKING_CANNOT_CANCEL",
+    });
+  });
+
+  it("keeps mock media isolated and enforces admin/type/cover rules", async () => {
+    await api.identity.login(ADMIN_CREDENTIALS);
+    const room = (await api.rooms.adminList()).data[0];
+    const file = new File(["image"], "suite.webp", { type: "image/webp" });
+    const uploaded = await api.media.upload(room.id, { file, altText: "Suite cover" });
+    expect(uploaded).toMatchObject({ roomId: room.id, mediaType: "image", isCover: true });
+    expect((await api.media.listForRoom(room.id)).data).toContainEqual(
+      expect.objectContaining({ id: uploaded.id }),
+    );
+    const video = await api.media.upload(room.id, {
+      file: new File(["video"], "tour.webm", { type: "video/webm" }),
+      altText: "Room tour",
+    });
+    await expect(api.media.update(room.id, video.id, { isCover: true })).rejects.toMatchObject({
+      code: "COVER_MUST_BE_IMAGE",
+    });
+    const secondImage = await api.media.upload(room.id, {
+      file: new File(["second"], "balcony.png", { type: "image/png" }),
+      altText: "Balcony",
+    });
+    await api.media.update(room.id, uploaded.id, { isCover: false });
+    expect((await api.media.adminList(room.id)).data).toContainEqual(
+      expect.objectContaining({ id: secondImage.id, isCover: true }),
+    );
+    await expect(api.media.remove(room.id, uploaded.id)).resolves.toMatchObject({
+      data: { id: uploaded.id, deleted: true },
+      storageCleanupPending: false,
+    });
+  });
 });

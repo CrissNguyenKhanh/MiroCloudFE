@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, CircleX, X } from 'lucide-react'
 import { api } from '../../api'
 import { getErrorMessage } from '../../api/errors'
 import StatusBadge from '../../components/common/StatusBadge'
+import PaymentStatusBadge from '../../components/payments/PaymentStatusBadge'
 import { EmptyState, ErrorState, LoadingState } from '../../components/common/States'
 import { useToast } from '../../contexts/ToastContext'
 import { formatCurrency, formatDateVN } from '../../utils/date'
@@ -141,7 +142,7 @@ export default function AdminBookingsPage() {
           <div className="admin-panel admin-panel--flush">
             <div className="admin-table-wrap">
               <table className="admin-table admin-table--bookings">
-                <thead><tr><th>Mã đơn</th><th>Khách</th><th>Phòng</th><th>Lưu trú</th><th>Tổng</th><th>Trạng thái</th><th><span className="sr-only">Thao tác</span></th></tr></thead>
+                <thead><tr><th>Mã đơn</th><th>Khách</th><th>Phòng</th><th>Lưu trú</th><th>Tổng</th><th>Thanh toán</th><th>Trạng thái</th><th><span className="sr-only">Thao tác</span></th></tr></thead>
                 <tbody>
                   {bookings.map((booking) => {
                     const userLabel = booking.user?.fullName || (booking.userId ? `ID ${booking.userId}` : 'Không có dữ liệu hồ sơ')
@@ -154,8 +155,9 @@ export default function AdminBookingsPage() {
                         <td>{roomLabel}<small>{roomNumber ? `Phòng ${roomNumber}` : `ID ${booking.roomId}`}</small></td>
                         <td>{formatDateVN(booking.checkInDate)}<small>đến {formatDateVN(booking.checkOutDate)} · {booking.nights} đêm</small></td>
                         <td>{formatCurrency(booking.totalPrice)}</td>
+                        <td><PaymentStatusBadge status={booking.paymentStatus} /></td>
                         <td><StatusBadge status={booking.status} /></td>
-                        <td>{booking.status === 'confirmed' && <button className="table-danger-action" type="button" onClick={() => { setCancelTarget(booking); setReason('') }}><CircleX /> Hủy</button>}</td>
+                        <td>{booking.status === 'confirmed' && booking.paymentStatus !== 'succeeded' && <button className="table-danger-action" type="button" onClick={() => { setCancelTarget(booking); setReason('') }}><CircleX /> Hủy</button>}</td>
                       </tr>
                     )
                   })}

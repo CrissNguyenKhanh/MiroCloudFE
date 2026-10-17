@@ -14,6 +14,18 @@ import { readMockState, resetMockState, updateMockState } from "./store";
 
 const registeredCredentials = new Map();
 const ACTIVE_BOOKING_STATUSES = new Set(["pending", "confirmed"]);
+const MOCK_MEDIA_TYPES = new Map([
+  ["image/jpeg", "image"],
+  ["image/png", "image"],
+  ["image/webp", "image"],
+  ["video/mp4", "video"],
+  ["video/webm", "video"],
+]);
+const MOCK_MEDIA_LIMITS = {
+  image: 5 * 1024 * 1024,
+  video: 30 * 1024 * 1024,
+  count: 20,
+};
 
 function clone(value) {
   return value === undefined ? undefined : structuredClone(value);
@@ -110,9 +122,20 @@ function paginated(data, filters = {}, defaultLimit = 10) {
   });
 }
 
-function canCancelBooking(booking, { asAdmin = false } = {}) {
+function latestPayment(state, bookingId) {
+  return (state.payments ?? [])
+    .filter((payment) => payment.bookingId === bookingId)
+    .sort(compareNewest)[0] ?? null;
+}
+
+function paymentStatusFor(state, bookingId) {
+  return latestPayment(state, bookingId)?.status ?? "unpaid";
+}
+
+function canCancelBooking(state, booking, { asAdmin = false } = {}) {
   return (
     ACTIVE_BOOKING_STATUSES.has(booking.status) &&
+    paymentStatusFor(state, booking.id) !== "succeeded" &&
     (asAdmin || canCustomerCancel(booking))
   );
 }
@@ -145,8 +168,11 @@ function presentBooking(
   return clone({
     ...booking,
     room,
+    paymentStatus: paymentStatusFor(state, booking.id),
     ...(includeUser ? { user } : {}),
-    canCancel: canCancelBooking(booking, { asAdmin: allowAdminCancellation }),
+    canCancel: canCancelBooking(state, booking, {
+      asAdmin: allowAdminCancellation,
+    }),
     ...(includeReviewState ? reviewStateFor(state, booking) : {}),
   });
 }
@@ -408,6 +434,13 @@ async function cancelMockBooking(
         "Đơn này không còn có thể hủy.",
         409,
         "BOOKING_NOT_CANCELLABLE",
+      );
+    }
+    if (paymentStatusFor(state, booking.id) === "succeeded") {
+      throw apiError(
+        "Đặt phòng đã thanh toán, cần hoàn tiền trước khi hủy",
+        409,
+        "PAID_BOOKING_CANNOT_CANCEL",
       );
     }
     if (!admin && !canCustomerCancel(booking)) {
@@ -878,6 +911,202 @@ export function createMockApi() {
       },
     },
 
+    media: {
+      async listForRoom(roomId) {
+        const state = readMockState();
+        const room = findRoom(state, roomId);
+        if (!room.isBookable)
+          throw apiError("Không tìm thấy phòng.", 404, "ROOM_NOT_FOUND");
+        return collection(
+          (state.media ?? [])
+            .filter((item) => item.roomId === roomId)
+            .sort((left, right) =>
+              Number(right.isCover) - Number(left.isCover) ||
+              left.sortOrder - right.sortOrder,
+            ),
+        );
+      },
+
+      async adminList(roomId) {
+        requireAdmin();
+        const state = readMockState();
+        findRoom(state, roomId);
+        return collection(
+          (state.media ?? [])
+            .filter((item) => item.roomId === roomId)
+            .sort((left, right) =>
+              Number(right.isCover) - Number(left.isCover) ||
+              left.sortOrder - right.sortOrder,
+            ),
+        );
+      },
+
+      async upload(roomId, { file, altText = "" } = {}) {
+        requireAdmin();
+        if (!file) throw apiError("Cần chọn tệp ảnh hoặc video.", 400, "FILE_REQUIRED");
+        const mediaType = MOCK_MEDIA_TYPES.get(file.type);
+        if (!mediaType)
+          throw apiError(
+            "Chỉ nhận ảnh JPEG, PNG, WebP hoặc video MP4, WebM.",
+            415,
+            "UNSUPPORTED_MEDIA_TYPE",
+          );
+        if (file.size > MOCK_MEDIA_LIMITS[mediaType])
+          throw apiError("Tệp vượt quá dung lượng cho phép.", 413, "FILE_TOO_LARGE");
+        if (String(altText).trim().length > 200)
+          throw apiError("Alt text tối đa 200 ký tự.", 400, "VALIDATION_ERROR");
+
+        let created;
+        updateMockState((state) => {
+          findRoom(state, roomId);
+          state.media ??= [];
+          const roomMedia = state.media.filter((item) => item.roomId === roomId);
+          if (roomMedia.length >= MOCK_MEDIA_LIMITS.count)
+            throw apiError("Mỗi phòng tối đa 20 ảnh và video.", 409, "MEDIA_LIMIT_REACHED");
+          const id = createId("media");
+          const now = new Date().toISOString();
+          created = {
+            id,
+            roomId,
+            mediaType,
+            url:
+              typeof URL?.createObjectURL === "function"
+                ? URL.createObjectURL(file)
+                : `blob:cloudstay-mock/${id}`,
+            thumbnailUrl: null,
+            format: file.name?.split(".").pop()?.toLowerCase() ?? null,
+            bytes: file.size,
+            width: null,
+            height: null,
+            durationSeconds: null,
+            altText: String(altText).trim(),
+            sortOrder: Math.max(0, ...roomMedia.map((item) => item.sortOrder)) + 1,
+            isCover:
+              mediaType === "image" && !roomMedia.some((item) => item.isCover),
+            createdAt: now,
+            updatedAt: now,
+          };
+          state.media.push(created);
+          return state;
+        });
+        return clone(created);
+      },
+
+      async replaceFile(roomId, mediaId, { file, altText } = {}) {
+        requireAdmin();
+        if (!file) throw apiError("Cần chọn tệp ảnh hoặc video.", 400, "FILE_REQUIRED");
+        const mediaType = MOCK_MEDIA_TYPES.get(file.type);
+        if (!mediaType)
+          throw apiError("Định dạng tệp không được hỗ trợ.", 415, "UNSUPPORTED_MEDIA_TYPE");
+        if (file.size > MOCK_MEDIA_LIMITS[mediaType])
+          throw apiError("Tệp vượt quá dung lượng cho phép.", 413, "FILE_TOO_LARGE");
+        let updated;
+        updateMockState((state) => {
+          findRoom(state, roomId);
+          const media = (state.media ?? []).find(
+            (item) => item.id === mediaId && item.roomId === roomId,
+          );
+          if (!media)
+            throw apiError("Không tìm thấy ảnh/video.", 404, "MEDIA_NOT_FOUND");
+          const wasCover = media.isCover;
+          Object.assign(media, {
+            mediaType,
+            url:
+              typeof URL?.createObjectURL === "function"
+                ? URL.createObjectURL(file)
+                : `blob:cloudstay-mock/${mediaId}`,
+            format: file.name?.split(".").pop()?.toLowerCase() ?? null,
+            bytes: file.size,
+            ...(altText !== undefined ? { altText: String(altText).trim() } : {}),
+            isCover: mediaType === "image" ? media.isCover : false,
+            updatedAt: new Date().toISOString(),
+          });
+          if (wasCover && mediaType === "video") {
+            const next = state.media.find(
+              (item) => item.roomId === roomId && item.id !== mediaId && item.mediaType === "image",
+            );
+            if (next) next.isCover = true;
+          } else if (
+            mediaType === "image" &&
+            !state.media.some((item) => item.roomId === roomId && item.isCover)
+          ) {
+            media.isCover = true;
+          }
+          updated = media;
+          return state;
+        });
+        return { data: clone(updated), storageCleanupPending: false };
+      },
+
+      async update(roomId, mediaId, patch = {}) {
+        requireAdmin();
+        if (patch.altText !== undefined && String(patch.altText).trim().length > 200)
+          throw apiError("Alt text tối đa 200 ký tự.", 400, "VALIDATION_ERROR");
+        if (
+          patch.sortOrder !== undefined &&
+          (!Number.isInteger(Number(patch.sortOrder)) || Number(patch.sortOrder) < 1 || Number(patch.sortOrder) > 10000)
+        ) throw apiError("Thứ tự phải từ 1 đến 10000.", 400, "VALIDATION_ERROR");
+        let updated;
+        updateMockState((state) => {
+          findRoom(state, roomId);
+          const media = (state.media ?? []).find(
+            (item) => item.id === mediaId && item.roomId === roomId,
+          );
+          if (!media)
+            throw apiError("Không tìm thấy ảnh/video.", 404, "MEDIA_NOT_FOUND");
+          if (patch.isCover === true && media.mediaType !== "image")
+            throw apiError("Chỉ ảnh mới có thể làm ảnh bìa.", 422, "COVER_MUST_BE_IMAGE");
+          if (patch.isCover === true) {
+            state.media
+              .filter((item) => item.roomId === roomId)
+              .forEach((item) => { item.isCover = false; });
+          }
+          const wasCover = media.isCover;
+          if (patch.altText !== undefined) media.altText = String(patch.altText).trim();
+          if (patch.sortOrder !== undefined) media.sortOrder = Number(patch.sortOrder);
+          if (patch.isCover !== undefined) media.isCover = Boolean(patch.isCover);
+          if (patch.isCover === false && wasCover) {
+            const next = state.media.find(
+              (item) =>
+                item.roomId === roomId &&
+                item.id !== mediaId &&
+                item.mediaType === "image",
+            );
+            if (next) next.isCover = true;
+          }
+          media.updatedAt = new Date().toISOString();
+          updated = media;
+          return state;
+        });
+        return clone(updated);
+      },
+
+      async remove(roomId, mediaId) {
+        requireAdmin();
+        let removed;
+        updateMockState((state) => {
+          findRoom(state, roomId);
+          const index = (state.media ?? []).findIndex(
+            (item) => item.id === mediaId && item.roomId === roomId,
+          );
+          if (index < 0)
+            throw apiError("Không tìm thấy ảnh/video.", 404, "MEDIA_NOT_FOUND");
+          [removed] = state.media.splice(index, 1);
+          if (removed.isCover) {
+            const next = state.media.find(
+              (item) => item.roomId === roomId && item.mediaType === "image",
+            );
+            if (next) next.isCover = true;
+          }
+          return state;
+        });
+        return {
+          data: { id: removed.id, deleted: true },
+          storageCleanupPending: false,
+        };
+      },
+    },
+
     bookings: {
       async create(payload = {}, options = {}) {
         const user = requireUser();
@@ -1067,6 +1296,70 @@ export function createMockApi() {
       async retryOutbox() {
         requireAdmin();
         return collection([]);
+      },
+    },
+
+    payments: {
+      async create(bookingId, { idempotencyKey, provider = "MOCK" } = {}) {
+        const user = requireUser();
+        const key = normalizeText(idempotencyKey);
+        if (provider !== "MOCK" || key.length < 8)
+          throw apiError("Yêu cầu thanh toán không hợp lệ.", 400, "VALIDATION_ERROR");
+        let result;
+        updateMockState((state) => {
+          const booking = findBooking(state, bookingId);
+          if (booking.userId !== user.id)
+            throw apiError("Không tìm thấy lịch đặt.", 404, "BOOKING_NOT_FOUND");
+          if (booking.status === "cancelled")
+            throw apiError("Đặt phòng đã hủy không thể thanh toán.", 409, "BOOKING_NOT_PAYABLE");
+          state.payments ??= [];
+          const reused = state.payments.find(
+            (payment) => payment.userId === user.id && payment.idempotencyKey === key,
+          );
+          if (reused && reused.bookingId !== bookingId)
+            throw apiError("Idempotency-Key đã được dùng cho đặt phòng khác.", 409, "IDEMPOTENCY_KEY_REUSED");
+          if (reused) {
+            result = reused;
+            return state;
+          }
+          const active = latestPayment(state, bookingId);
+          if (active && ["pending", "succeeded"].includes(active.status)) {
+            result = active;
+            return state;
+          }
+          const now = new Date().toISOString();
+          result = {
+            id: createId("payment"),
+            bookingId,
+            userId: user.id,
+            provider: "MOCK",
+            amount: booking.totalPrice,
+            currency: "VND",
+            status: "succeeded",
+            idempotencyKey: key,
+            providerTransactionId: `MOCK-${createId("transaction")}`,
+            failureReason: null,
+            createdAt: now,
+            updatedAt: now,
+            paidAt: now,
+          };
+          state.payments.push(result);
+          return state;
+        });
+        const { userId: _userId, idempotencyKey: _key, ...publicPayment } = result;
+        return clone(publicPayment);
+      },
+
+      async getForBooking(bookingId) {
+        const user = requireUser();
+        const state = readMockState();
+        const booking = findBooking(state, bookingId);
+        if (booking.userId !== user.id)
+          throw apiError("Không tìm thấy lịch đặt.", 404, "BOOKING_NOT_FOUND");
+        const payment = latestPayment(state, bookingId);
+        if (!payment) return null;
+        const { userId: _userId, idempotencyKey: _key, ...publicPayment } = payment;
+        return clone(publicPayment);
       },
     },
 

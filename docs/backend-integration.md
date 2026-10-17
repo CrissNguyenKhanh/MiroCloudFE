@@ -1,12 +1,11 @@
 # Backend integration
 
-Tài liệu này ghi lại contract frontend đã đối chiếu read-only với repository `cloud-room-booking` ngày **09/10/2026**.
+Tài liệu này ghi lại contract frontend đã đối chiếu read-only với repository `cloud-room-booking` ngày **17/10/2026**.
 
-- Backend `origin/main`: `d9727cba5b55f94e6e9bacd7ca2b89f68bf576b2`.
-- Backend `origin/fix/booking-ci-after-merge`: `7254e8f00f496a7211ff3c0500ede3242dce9788`.
-- Nhánh fix chỉ sửa readiness và booking tests; public API contract giống `main`.
-- Code router/controller/schema/service/repository là nguồn sự thật. `docs/api-contract.md` của backend còn ghi endpoint availability cũ.
-- Audit không đổi backend, không chạy migration/seed và không kết nối Neon.
+- Backend branch: `chore/docker-local-isolated`.
+- Backend commit tích hợp được đối chiếu: `c2a1e93`.
+- Source router/controller/service/repository/test tại commit trên là nguồn sự thật.
+- Audit không đổi backend, không chạy migration/seed và không thực hiện mutation trên Render/Neon.
 
 ## Quy ước chung
 
@@ -30,9 +29,15 @@ Tài liệu này ghi lại contract frontend đã đối chiếu read-only với
 | Tạo booking | `POST /bookings` | `Idempotency-Key`; strict body 4 field | Hoàn tất |
 | Booking của tôi | `GET /bookings/me` | status/when/page/limit + meta | Hoàn tất |
 | Hủy của khách | `POST /bookings/:id/cancel` | reason optional | Hoàn tất |
+| Payment MOCK | `POST /bookings/:id/payments`, `GET /bookings/:id/payment` | JWT, Idempotency-Key; provider `MOCK` | Hoàn tất; có reconciliation sau trạng thái chưa xác định |
+| Public review | `GET /rooms/:id/reviews` | data, meta, summary; chỉ review visible | Hoàn tất |
+| Review của khách | booking review, `/reviews/me`, update/delete | ownership, eligibility, mỗi booking một review | Hoàn tất |
+| Admin review | `GET/PATCH /admin/reviews...` | filter và moderation status | Hoàn tất |
+| Public media | `GET /rooms/:id/media` | ảnh/video theo cover và sort order | Hoàn tất; có fallback khi rỗng/lỗi ảnh |
+| Admin media | `/admin/rooms/:id/media...` | multipart upload/replace; metadata update/delete | Hoàn tất; Cloudinary thật chưa E2E |
 | Notification | `GET /notifications`, `PATCH /notifications/:id/read` | Không có read-all | Hoàn tất; mark-all gọi từng item |
-| Admin phòng | `POST/PATCH /admin/rooms/:id?` | Whitelist room schema | Hoàn tất trong giới hạn active-only |
-| Admin booking | `GET /admin/bookings`, `POST /admin/bookings/:id/cancel` | Filter status/page/limit; reason bắt buộc | Hoàn tất một phần do bug filter backend |
+| Admin phòng | `GET/POST/PATCH /admin/rooms/:id?` | Inventory active/inactive; whitelist room schema | Hoàn tất |
+| Admin booking | `GET /admin/bookings`, `POST /admin/bookings/:id/cancel` | Filter status/room/user/page/limit; reason bắt buộc | Hoàn tất |
 | Admin users | `GET /admin/users`, `PATCH /admin/users/:id/status` | `ACTIVE` hoặc `LOCKED` | Hoàn tất |
 | Admin outbox | `GET /admin/outbox`, `POST /admin/outbox/retry` | JWT admin; không body retry | Hoàn tất |
 
@@ -92,7 +97,7 @@ size_sqm, bed_type, view_label, floor, featured, description,
 palette, equipment, active
 ```
 
-Toggle gửi `{active:boolean}`. Backend chưa có `GET /api/v1/admin/rooms`; real mode chỉ hiển thị active rooms từ public list. Sau khi tắt một phòng, frontend không giả lập inventory inactive hoặc lưu local để “khôi phục”.
+Toggle gửi `{active:boolean}`. `GET /api/v1/admin/rooms` trả inventory gồm cả phòng active/inactive; real mode không lấy mock inventory thay thế.
 
 ## Booking Service
 
@@ -136,11 +141,56 @@ Timeout/network được trình bày là “chưa xác định kết quả”, k
 
 Danh sách booking không có `can_cancel`; frontend dùng đúng cutoff trên làm fallback, backend vẫn quyết định cuối cùng.
 
-### Blocker backend đã xác minh
+Admin booking hỗ trợ `status`, `room_id`, `user_id`, `page`, `limit`. Pagination dùng metadata backend; UI không suy diễn thống kê toàn hệ thống từ riêng trang đang tải.
 
-Controller admin booking parse `room_id/user_id`, service truyền nguyên query, nhưng repository destructure `roomId/userId`. Vì vậy hai filter này hiện bị bỏ qua; `status/page/limit` vẫn hoạt động. UI chỉ bật filter trạng thái và ghi rõ blocker.
+Booking mapping giữ `payment_status`, `can_review`, `review_id` và `can_cancel`. Dù dữ liệu cũ có `can_cancel=true`, frontend vẫn không đưa thao tác hủy khi payment đã `SUCCEEDED`; backend là lớp bảo vệ cuối cùng.
 
-Pagination dùng window count. Khi page vượt phạm vi và trả mảng rỗng, backend trả `total:0`; UI vẫn cho quay lại trang trước và không suy diễn đây là tổng thật.
+## Payment MOCK
+
+Payment là mô phỏng nghiệp vụ, không phải VNPay/MoMo/ngân hàng và không có refund hoặc webhook.
+
+```http
+POST /api/v1/bookings/:id/payments
+Authorization: Bearer <JWT>
+Idempotency-Key: <8-128 ký tự>
+Content-Type: application/json
+
+{"provider":"MOCK"}
+```
+
+- `GET /api/v1/bookings/:id/payment` dùng để đọc/reconcile trạng thái; chưa có payment trả `data: null`.
+- Frontend không gửi amount. Backend lấy số tiền authoritative từ booking.
+- Double-click bị khóa đồng bộ ở UI. Timeout/network không tự retry POST và không khẳng định thất bại.
+- Retry cùng intent giữ nguyên key; người dùng được hướng dẫn GET trạng thái trước.
+- Trạng thái normalize về `unpaid`, `pending`, `succeeded`, `failed`.
+- Booking cancelled không được thanh toán; booking paid không có thao tác hủy.
+
+## Review và rating
+
+| Quyền | Endpoint |
+| --- | --- |
+| Public | `GET /api/v1/rooms/:id/reviews` |
+| Customer | `POST /bookings/:id/review`, `GET /bookings/:id/review`, `GET /reviews/me`, `PATCH/DELETE /reviews/:id` |
+| Admin | `GET /admin/reviews`, `PATCH /admin/reviews/:id/status` |
+
+Public response chỉ chứa review `VISIBLE`, summary/distribution và không lộ `user_id`. Backend quyết định ownership, booking eligibility, ngày checkout và quy tắc một review/booking. Rating hợp lệ 1–5. Chính sách hiện tại không bắt buộc payment succeeded để review; frontend không thêm hạn chế riêng.
+
+My Bookings dùng `can_review`/`review_id` từ booking và chỉ gọi `GET /bookings/:id/review` cho tối đa các booking đủ điều kiện trên trang hiện tại. Cách này tránh kết luận sai do chỉ tải 50 review đầu tiên, đồng thời giới hạn số request theo page size.
+
+## Room Media
+
+| Quyền | Method và endpoint |
+| --- | --- |
+| Public | `GET /api/v1/rooms/:id/media` |
+| Admin | `GET/POST /api/v1/admin/rooms/:id/media` |
+| Admin | `PUT /api/v1/admin/rooms/:id/media/:mediaId/file` |
+| Admin | `PATCH/DELETE /api/v1/admin/rooms/:id/media/:mediaId` |
+
+Public mapping giữ URL, thumbnail, loại media, alt text, thứ tự, cover, kích thước và thời lượng; không phụ thuộc `public_id`. Gallery ưu tiên cover/sort order, dùng HTML5 video controls không autoplay và fallback sang RoomVisual khi collection rỗng hoặc ảnh lỗi.
+
+Upload/replace gửi `multipart/form-data` với `file` và optional `alt_text`. Client để browser tự tạo boundary, vẫn gắn Bearer token và giữ timeout/error envelope. Validation phía UI khớp mặc định backend: JPEG/PNG/WebP tối đa 5 MB, MP4/WebM tối đa 30 MB, 20 media/phòng, alt text 200 ký tự, sort order 1–10000 và chỉ ảnh được làm cover.
+
+Replace/delete giữ top-level `storage_cleanup_pending`. Khi flag là true, UI báo mutation dữ liệu đã thành công nhưng việc dọn storage còn chờ xử lý. `MEDIA_NOT_CONFIGURED` được trình bày là cấu hình server còn thiếu; frontend không nhận Cloudinary secret.
 
 ## Notification và outbox
 
@@ -152,20 +202,20 @@ Pagination dùng window count. Khi page vượt phạm vi và trả mảng rỗn
 
 ## Cấu hình
 
-Mock mode:
-
-```env
-VITE_USE_MOCK_API=true
-```
-
-Real mode local:
+Real Render mode (giá trị public, dùng ở build time):
 
 ```env
 VITE_USE_MOCK_API=false
-VITE_IDENTITY_API_URL=http://localhost:3001
-VITE_BOOKING_API_URL=http://localhost:3002
-VITE_NOTIFICATION_API_URL=http://localhost:3003
-VITE_API_TIMEOUT_MS=10000
+VITE_IDENTITY_API_URL=https://cloudstay-docker-identity.onrender.com
+VITE_BOOKING_API_URL=https://cloudstay-docker-booking.onrender.com
+VITE_NOTIFICATION_API_URL=https://cloudstay-docker-notification.onrender.com
+VITE_API_TIMEOUT_MS=30000
+```
+
+Mock mode offline có thể đặt riêng trong `.env.local`:
+
+```env
+VITE_USE_MOCK_API=true
 ```
 
 Restart Vite sau khi đổi env. Không đặt JWT secret, internal service key, database URL/password hoặc token riêng tư vào `VITE_*`. Real mode không fallback sang mock khi lỗi.
@@ -185,18 +235,18 @@ Checklist real mode thủ công chỉ nên chạy với database test riêng:
 
 1. Register → login → reload → `/users/me` khôi phục session.
 2. Search/filter/page → detail → unavailable dates/alternatives.
-3. Checkout → result → reload booking ID → My Bookings.
-4. Cancel hợp lệ/quá hạn → Notifications → mark-read/mark-all.
-5. Admin Rooms → Bookings → Users → Outbox.
+3. Checkout → result → Payment MOCK → reconcile → My Bookings.
+4. Review đủ điều kiện → My Reviews → public rating/summary.
+5. Cancel hợp lệ/quá hạn → Notifications → mark-read/mark-all.
+6. Admin Rooms → Media CRUD → Bookings → Reviews → Users → Outbox.
 
 Không chạy migration/seed hoặc thao tác ghi trên Neon dùng chung để “sửa” frontend test.
 
-## Chức năng để sau
+## Giới hạn còn lại
 
-- Payment/refund.
-- Upload ảnh.
-- Profile/phone/special requests.
-- Refresh token/reset password.
-- Admin list đầy đủ gồm phòng inactive.
-- Thống kê tổng hệ thống hoặc doanh thu thực thu.
-- Hai filter admin booking `room_id/user_id` sau khi backend sửa mismatch.
+- Không có payment tiền thật, refund hoặc webhook; Payment chỉ là provider `MOCK`.
+- Upload Cloudinary thật chưa được chạy trong audit read-only vì cần admin credential và cấu hình server; adapter/UI được kiểm thử bằng mock.
+- Chưa có profile/phone/special requests, refresh token hoặc reset password.
+- Không có API doanh thu/thống kê toàn hệ thống; dashboard không bịa số liệu.
+- Notification mark-all vẫn gọi từng item; outbox retry cần admin kích hoạt.
+- Render hiện allow CORS/WebSocket origin `https://cloudstay-docker-fe.pages.dev`, không khớp frontend tham chiếu `https://mirocloudfe.pages.dev`; cần sửa cấu hình deployment trước khi Real API chạy được trong browser.

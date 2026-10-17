@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   mine: vi.fn(),
   cancelMine: vi.fn(),
   reviewsMine: vi.fn(),
+  getReviewForBooking: vi.fn(),
   createReview: vi.fn(),
   updateReview: vi.fn(),
   removeReview: vi.fn(),
@@ -23,6 +24,7 @@ vi.mock("../api", () => ({
     },
     reviews: {
       mine: mocks.reviewsMine,
+      getForBooking: mocks.getReviewForBooking,
       create: mocks.createReview,
       update: mocks.updateReview,
       remove: mocks.removeReview,
@@ -173,6 +175,9 @@ describe("MyBookingsPage reviews", () => {
   beforeEach(() => {
     Object.values(mocks).forEach((mock) => mock.mockReset());
     mocks.reviewsMine.mockResolvedValue({ data: [], meta: { total: 0 } });
+    mocks.getReviewForBooking.mockRejectedValue(
+      Object.assign(new Error("not found"), { code: "REVIEW_NOT_FOUND", status: 404 }),
+    );
   });
 
   it("does not look up reviews or offer review for upcoming stays", async () => {
@@ -184,7 +189,7 @@ describe("MyBookingsPage reviews", () => {
     expect(
       screen.queryByRole("button", { name: "Viết đánh giá" }),
     ).not.toBeInTheDocument();
-    expect(mocks.reviewsMine).not.toHaveBeenCalled();
+    expect(mocks.getReviewForBooking).not.toHaveBeenCalled();
   });
 
   it("validates, then sends a new review for a finished stay and shows it on the card", async () => {
@@ -233,10 +238,7 @@ describe("MyBookingsPage reviews", () => {
       data: [finishedBooking()],
       meta: { total: 1 },
     });
-    mocks.reviewsMine.mockResolvedValue({
-      data: [review({ status: "hidden" })],
-      meta: { total: 1 },
-    });
+    mocks.getReviewForBooking.mockResolvedValue(review({ status: "hidden" }));
     mocks.updateReview.mockResolvedValue(
       review({ rating: 5, title: "Tuyệt vời" }),
     );
@@ -308,7 +310,7 @@ describe("MyBookingsPage reviews", () => {
       data: [finishedBooking()],
       meta: { total: 1 },
     });
-    mocks.reviewsMine.mockRejectedValue(new Error("down"));
+    mocks.getReviewForBooking.mockRejectedValue(new Error("down"));
 
     renderPage();
 
