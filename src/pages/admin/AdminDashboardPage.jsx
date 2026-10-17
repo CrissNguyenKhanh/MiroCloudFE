@@ -5,6 +5,7 @@ import { api, isMockMode } from '../../api'
 import { getErrorMessage } from '../../api/errors'
 import { ErrorState, LoadingState } from '../../components/common/States'
 import StatusBadge from '../../components/common/StatusBadge'
+import PaymentStatusBadge from '../../components/payments/PaymentStatusBadge'
 import { formatCurrency, formatDateVN } from '../../utils/date'
 
 export default function AdminDashboardPage() {
@@ -57,7 +58,7 @@ export default function AdminDashboardPage() {
             <div className="admin-panel__heading"><div><h2>Booking gần đây</h2><p>Tối đa 5 dòng từ trang booking đầu tiên.</p></div><Link className="text-link" to="/admin/bookings">Xem danh sách <ArrowRight /></Link></div>
             <div className="admin-table-wrap">
               <table className="admin-table">
-                <thead><tr><th>Mã đơn</th><th>Khách</th><th>Phòng</th><th>Nhận phòng</th><th>Tổng dự kiến</th><th>Trạng thái</th></tr></thead>
+                <thead><tr><th>Mã đơn</th><th>Khách</th><th>Phòng</th><th>Nhận phòng</th><th>Tổng dự kiến</th><th>Thanh toán</th><th>Trạng thái</th></tr></thead>
                 <tbody>
                   {data.bookings.slice(0, 5).map((booking) => (
                     <tr key={booking.id}>
@@ -66,6 +67,7 @@ export default function AdminDashboardPage() {
                       <td>{booking.room?.name || booking.roomName || `ID ${booking.roomId}`}</td>
                       <td>{formatDateVN(booking.checkInDate)}</td>
                       <td>{formatCurrency(booking.totalPrice)}</td>
+                      <td><PaymentStatusBadge status={booking.paymentStatus} /></td>
                       <td><StatusBadge status={booking.status} /></td>
                     </tr>
                   ))}

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Edit3, Plus, Search, ToggleLeft, ToggleRight, X } from 'lucide-react'
+import { Edit3, Images, Plus, Search, ToggleLeft, ToggleRight, X } from 'lucide-react'
 import { api } from '../../api'
 import { getErrorMessage } from '../../api/errors'
 import { ROOM_TYPES } from '../../data/mockData'
 import { ErrorState, FieldError, LoadingState } from '../../components/common/States'
+import AdminMediaManager from '../../components/media/AdminMediaManager'
 import { useToast } from '../../contexts/ToastContext'
 import { formatCurrency } from '../../utils/date'
 
@@ -22,6 +23,7 @@ export default function AdminRoomsPage() {
   const [form, setForm] = useState(emptyForm)
   const [formErrors, setFormErrors] = useState({})
   const [saving, setSaving] = useState(false)
+  const [mediaRoom, setMediaRoom] = useState(null)
   const { showToast } = useToast()
 
   const loadRooms = useCallback(async () => {
@@ -150,7 +152,7 @@ export default function AdminRoomsPage() {
                     <td>{room.capacity} khách</td>
                     <td>{formatCurrency(room.pricePerNight)}</td>
                     <td><span className={`availability-pill${room.isBookable ? ' availability-pill--on' : ''}`}>{room.isBookable ? 'Đang nhận đặt' : 'Tạm ngừng'}</span></td>
-                    <td><div className="table-actions"><button type="button" onClick={() => openEdit(room)} aria-label={`Sửa ${room.name}`}><Edit3 /></button><button type="button" onClick={() => toggle(room)} aria-label={room.isBookable ? `Ngừng nhận đặt ${room.name}` : `Nhận đặt lại ${room.name}`}>{room.isBookable ? <ToggleRight /> : <ToggleLeft />}</button></div></td>
+                    <td><div className="table-actions"><button type="button" onClick={() => setMediaRoom(room)} aria-label={`Quản lý ảnh/video ${room.name}`}><Images /></button><button type="button" onClick={() => openEdit(room)} aria-label={`Sửa ${room.name}`}><Edit3 /></button><button type="button" onClick={() => toggle(room)} aria-label={room.isBookable ? `Ngừng nhận đặt ${room.name}` : `Nhận đặt lại ${room.name}`}>{room.isBookable ? <ToggleRight /> : <ToggleLeft />}</button></div></td>
                   </tr>
                 ))}
               </tbody>
@@ -182,6 +184,7 @@ export default function AdminRoomsPage() {
           </section>
         </div>
       )}
+      {mediaRoom && <AdminMediaManager room={mediaRoom} onClose={() => setMediaRoom(null)} />}
     </div>
   )
 }

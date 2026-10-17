@@ -1,94 +1,198 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, CircleX, Hotel, Search } from 'lucide-react'
-import { Link } from 'react-router-dom'
-import { api } from '../api'
-import { getErrorMessage } from '../api/errors'
-import StatusBadge from '../components/common/StatusBadge'
-import { EmptyState, ErrorState, LoadingState } from '../components/common/States'
-import RoomVisual from '../components/rooms/RoomVisual'
-import { useToast } from '../contexts/ToastContext'
-import { formatCurrency, formatDateVN } from '../utils/date'
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  CalendarDays,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  CircleX,
+  Hotel,
+  Search,
+} from "lucide-react";
+import { Link } from "react-router-dom";
+import { api } from "../api";
+import { getErrorMessage } from "../api/errors";
+import { getApiSession } from "../api/session";
+import StatusBadge from "../components/common/StatusBadge";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from "../components/common/States";
+import BookingReviewPanel from "../components/reviews/BookingReviewPanel";
+import ReviewFormModal from "../components/reviews/ReviewFormModal";
+import PaymentStatusBadge from "../components/payments/PaymentStatusBadge";
+import RoomVisual from "../components/rooms/RoomVisual";
+import { useToast } from "../contexts/ToastContext";
+import { formatCurrency, formatDateVN } from "../utils/date";
+import { isReviewableBooking } from "../utils/review";
 
-const PAGE_SIZE = 10
+const PAGE_SIZE = 10;
 const tabs = [
-  { value: 'all', label: 'Tất cả', filters: {} },
-  { value: 'upcoming', label: 'Sắp tới', filters: { status: 'confirmed', when: 'upcoming' } },
-  { value: 'cancelled', label: 'Đã hủy', filters: { status: 'cancelled' } },
-]
+  { value: "all", label: "Tất cả", filters: {} },
+  {
+    value: "upcoming",
+    label: "Sắp tới",
+    filters: { status: "confirmed", when: "upcoming" },
+  },
+  { value: "cancelled", label: "Đã hủy", filters: { status: "cancelled" } },
+];
 
 export default function MyBookingsPage() {
-  const [bookings, setBookings] = useState([])
-  const [meta, setMeta] = useState(null)
-  const [status, setStatus] = useState('loading')
-  const [error, setError] = useState('')
-  const [activeTab, setActiveTab] = useState('all')
-  const [page, setPage] = useState(1)
-  const [cancelId, setCancelId] = useState(null)
-  const [reason, setReason] = useState('')
-  const [cancelling, setCancelling] = useState(false)
-  const requestIdRef = useRef(0)
-  const { showToast } = useToast()
+  const [bookings, setBookings] = useState([]);
+  const [meta, setMeta] = useState(null);
+  const [status, setStatus] = useState("loading");
+  const [error, setError] = useState("");
+  const [activeTab, setActiveTab] = useState("all");
+  const [page, setPage] = useState(1);
+  const [cancelId, setCancelId] = useState(null);
+  const [reason, setReason] = useState("");
+  const [cancelling, setCancelling] = useState(false);
+  const [reviewsByBooking, setReviewsByBooking] = useState({});
+  const [reviewsAvailable, setReviewsAvailable] = useState(true);
+  const [reviewModal, setReviewModal] = useState(null);
+  const [deleteReviewId, setDeleteReviewId] = useState(null);
+  const [deletingReview, setDeletingReview] = useState(false);
+  const requestIdRef = useRef(0);
+  const { showToast } = useToast();
 
   const loadBookings = useCallback(async () => {
-    const requestId = ++requestIdRef.current
-    const tab = tabs.find((item) => item.value === activeTab) ?? tabs[0]
-    setStatus('loading')
-    setError('')
+    const requestId = ++requestIdRef.current;
+    const tab = tabs.find((item) => item.value === activeTab) ?? tabs[0];
+    setStatus("loading");
+    setError("");
     try {
-      const result = await api.bookings.mine({ ...tab.filters, page, limit: PAGE_SIZE })
-      if (requestId !== requestIdRef.current) return
-      setBookings(result.data)
-      setMeta(result.meta)
-      setStatus('success')
+      const result = await api.bookings.mine({
+        ...tab.filters,
+        page,
+        limit: PAGE_SIZE,
+      });
+      if (requestId !== requestIdRef.current) return;
+      let reviewMap = {};
+      let reviewLookupFailed = false;
+      if (result.data.some((booking) => isReviewableBooking(booking))) {
+        const candidates = result.data.filter((booking) =>
+          isReviewableBooking(booking),
+        );
+        const settled = await Promise.allSettled(
+          candidates.map((booking) => api.reviews.getForBooking(booking.id)),
+        );
+        settled.forEach((lookup, index) => {
+          if (lookup.status === "fulfilled") {
+            reviewMap[candidates[index].id] = lookup.value;
+          } else if (lookup.reason?.code !== "REVIEW_NOT_FOUND") {
+            reviewLookupFailed = true;
+          }
+        });
+        if (requestId !== requestIdRef.current) return;
+      }
+      setBookings(result.data);
+      setMeta(result.meta);
+      setReviewsByBooking(reviewMap);
+      setReviewsAvailable(!reviewLookupFailed);
+      setStatus("success");
     } catch (loadError) {
-      if (requestId !== requestIdRef.current) return
-      setError(getErrorMessage(loadError))
-      setStatus('error')
+      if (requestId !== requestIdRef.current) return;
+      setError(getErrorMessage(loadError));
+      setStatus("error");
     }
-  }, [activeTab, page])
+  }, [activeTab, page]);
 
   useEffect(() => {
-    loadBookings()
+    loadBookings();
     return () => {
-      requestIdRef.current += 1
-    }
-  }, [loadBookings])
+      requestIdRef.current += 1;
+    };
+  }, [loadBookings]);
 
   const chooseTab = (value) => {
-    setActiveTab(value)
-    setPage(1)
-    setCancelId(null)
-    setReason('')
-  }
+    setActiveTab(value);
+    setPage(1);
+    setCancelId(null);
+    setReason("");
+    setDeleteReviewId(null);
+  };
+
+  const submitReview = async (values) => {
+    const { booking, review } = reviewModal;
+    try {
+      const saved = review
+        ? await api.reviews.update(review.id, values)
+        : await api.reviews.create(booking.id, values);
+      setReviewsByBooking((current) => ({ ...current, [booking.id]: saved }));
+      setReviewModal(null);
+      showToast(
+        review
+          ? "Đã cập nhật đánh giá của bạn."
+          : "Cảm ơn bạn đã chia sẻ đánh giá!",
+      );
+    } catch (reviewError) {
+      if (
+        reviewError?.code === "REVIEW_ALREADY_EXISTS" ||
+        reviewError?.code === "REVIEW_NOT_FOUND"
+      ) {
+        setReviewModal(null);
+        showToast(getErrorMessage(reviewError), "error");
+        await loadBookings();
+        return;
+      }
+      throw reviewError;
+    }
+  };
+
+  const deleteReview = async (review) => {
+    if (deletingReview) return;
+    setDeletingReview(true);
+    try {
+      await api.reviews.remove(review.id);
+    } catch (deleteError) {
+      if (deleteError?.code !== "REVIEW_NOT_FOUND") {
+        showToast(getErrorMessage(deleteError), "error");
+        setDeletingReview(false);
+        return;
+      }
+    }
+    setReviewsByBooking((current) => {
+      const next = { ...current };
+      delete next[review.bookingId];
+      return next;
+    });
+    setDeleteReviewId(null);
+    setDeletingReview(false);
+    showToast("Đã xóa đánh giá.");
+  };
 
   const cancelBooking = async (bookingId) => {
-    if (cancelling) return
-    setCancelling(true)
+    if (cancelling) return;
+    setCancelling(true);
     try {
-      const trimmedReason = reason.trim()
+      const trimmedReason = reason.trim();
       await api.bookings.cancelMine(
         bookingId,
         trimmedReason ? { reason: trimmedReason } : undefined,
-      )
-      setCancelId(null)
-      setReason('')
-      showToast('Đơn đặt phòng đã được hủy.')
-      await loadBookings()
+      );
+      setCancelId(null);
+      setReason("");
+      showToast("Đơn đặt phòng đã được hủy.");
+      await loadBookings();
     } catch (cancelError) {
-      const message = cancelError?.code === 'CANCELLATION_WINDOW_PASSED'
-        ? 'Đã qua hạn hủy: muộn hơn 14:00 ngày trước ngày nhận phòng.'
-        : getErrorMessage(cancelError)
-      showToast(message, 'error')
-      if (cancelError?.code === 'CANCELLATION_WINDOW_PASSED') await loadBookings()
+      const message =
+        cancelError?.code === "CANCELLATION_WINDOW_PASSED"
+          ? "Đã qua hạn hủy: muộn hơn 14:00 ngày trước ngày nhận phòng."
+          : getErrorMessage(cancelError);
+      showToast(message, "error");
+      if (cancelError?.code === "CANCELLATION_WINDOW_PASSED")
+        await loadBookings();
     } finally {
-      setCancelling(false)
+      setCancelling(false);
     }
-  }
+  };
 
-  const total = Number(meta?.total)
-  const hasKnownTotal = Number.isFinite(total) && total >= 0
-  const hasPrevious = page > 1
-  const hasNext = hasKnownTotal ? page * PAGE_SIZE < total : bookings.length === PAGE_SIZE
+  const total = Number(meta?.total);
+  const hasKnownTotal = Number.isFinite(total) && total >= 0;
+  const hasPrevious = page > 1;
+  const hasNext = hasKnownTotal
+    ? page * PAGE_SIZE < total
+    : bookings.length === PAGE_SIZE;
 
   return (
     <div className="page page--soft account-page">
@@ -103,89 +207,257 @@ export default function MyBookingsPage() {
         <div className="container">
           <div className="tabs" role="tablist" aria-label="Lọc đơn đặt phòng">
             {tabs.map((tab) => (
-              <button key={tab.value} type="button" role="tab" aria-selected={activeTab === tab.value} className={activeTab === tab.value ? 'tab tab--active' : 'tab'} onClick={() => chooseTab(tab.value)}>
+              <button
+                key={tab.value}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === tab.value}
+                className={activeTab === tab.value ? "tab tab--active" : "tab"}
+                onClick={() => chooseTab(tab.value)}
+              >
                 {tab.label}
               </button>
             ))}
           </div>
 
-          {status === 'loading' && <LoadingState label="Đang tải các kỳ nghỉ…" />}
-          {status === 'error' && <ErrorState message={error} onRetry={loadBookings} />}
-          {status === 'success' && bookings.length === 0 && (
+          {status === "loading" && (
+            <LoadingState label="Đang tải các kỳ nghỉ…" />
+          )}
+          {status === "error" && (
+            <ErrorState message={error} onRetry={loadBookings} />
+          )}
+          {status === "success" && bookings.length === 0 && (
             <EmptyState
-              title={hasPrevious ? 'Trang này không còn đơn' : activeTab === 'all' ? 'Bạn chưa có đơn đặt phòng' : 'Không có đơn trong mục này'}
-              message={hasPrevious ? 'Dữ liệu có thể đã thay đổi. Hãy quay lại trang trước.' : 'Một căn phòng ấm áp vẫn đang chờ bạn khám phá.'}
-              action={hasPrevious
-                ? <button className="button button--navy" type="button" onClick={() => setPage((current) => current - 1)}>Trang trước</button>
-                : <Link className="button button--navy" to="/rooms"><Search size={17} /> Tìm phòng</Link>}
+              title={
+                hasPrevious
+                  ? "Trang này không còn đơn"
+                  : activeTab === "all"
+                    ? "Bạn chưa có đơn đặt phòng"
+                    : "Không có đơn trong mục này"
+              }
+              message={
+                hasPrevious
+                  ? "Dữ liệu có thể đã thay đổi. Hãy quay lại trang trước."
+                  : "Một căn phòng ấm áp vẫn đang chờ bạn khám phá."
+              }
+              action={
+                hasPrevious ? (
+                  <button
+                    className="button button--navy"
+                    type="button"
+                    onClick={() => setPage((current) => current - 1)}
+                  >
+                    Trang trước
+                  </button>
+                ) : (
+                  <Link className="button button--navy" to="/rooms">
+                    <Search size={17} /> Tìm phòng
+                  </Link>
+                )
+              }
             />
           )}
-          {status === 'success' && bookings.length > 0 && (
+          {status === "success" && bookings.length > 0 && (
             <>
-              {hasKnownTotal && <p className="collection-scope">{total} đơn phù hợp · trang {page}</p>}
+              {hasKnownTotal && (
+                <p className="collection-scope">
+                  {total} đơn phù hợp · trang {page}
+                </p>
+              )}
               <div className="booking-list">
                 {bookings.map((booking) => {
-                  const roomName = booking.room?.name || booking.roomName || `Phòng ${booking.roomId}`
-                  const roomNumber = booking.room?.roomNumber || booking.roomNumber
-                  const cancellationExpired = booking.status === 'confirmed' && !booking.canCancel
+                  const roomName =
+                    booking.room?.name ||
+                    booking.roomName ||
+                    `Phòng ${booking.roomId}`;
+                  const roomNumber =
+                    booking.room?.roomNumber || booking.roomNumber;
+                  const cancellationExpired =
+                    booking.status === "confirmed" && !booking.canCancel;
+                  const review = reviewsByBooking[booking.id];
+                  const showReviewPanel =
+                    reviewsAvailable &&
+                    (Boolean(review) || isReviewableBooking(booking));
                   return (
                     <article className="booking-card" key={booking.id}>
-                      <RoomVisual room={booking.room || { name: roomName, type: booking.roomType }} />
+                      <RoomVisual
+                        room={
+                          booking.room || {
+                            name: roomName,
+                            type: booking.roomType,
+                          }
+                        }
+                      />
                       <div className="booking-card__content">
                         <div className="booking-card__topline">
-                          <span className="booking-card__code">{booking.code}</span>
+                          <span className="booking-card__code">
+                            {booking.code}
+                          </span>
                           <StatusBadge status={booking.status} />
+                          <PaymentStatusBadge status={booking.paymentStatus} />
                         </div>
                         <div>
-                          <span className="eyebrow">{roomNumber ? `Phòng ${roomNumber}` : `ID ${booking.roomId}`}</span>
+                          <span className="eyebrow">
+                            {roomNumber
+                              ? `Phòng ${roomNumber}`
+                              : `ID ${booking.roomId}`}
+                          </span>
                           <h2>{roomName}</h2>
                         </div>
                         <div className="booking-card__facts">
-                          <span><CalendarDays /><small>Nhận — Trả</small><strong>{formatDateVN(booking.checkInDate)} — {formatDateVN(booking.checkOutDate)}</strong></span>
-                          <span><Hotel /><small>Kỳ nghỉ</small><strong>{booking.nights} đêm · {booking.guests} khách</strong></span>
-                          <span><small>Tổng đã xác nhận</small><strong>{formatCurrency(booking.totalPrice)}</strong></span>
+                          <span>
+                            <CalendarDays />
+                            <small>Nhận — Trả</small>
+                            <strong>
+                              {formatDateVN(booking.checkInDate)} —{" "}
+                              {formatDateVN(booking.checkOutDate)}
+                            </strong>
+                          </span>
+                          <span>
+                            <Hotel />
+                            <small>Kỳ nghỉ</small>
+                            <strong>
+                              {booking.nights} đêm · {booking.guests} khách
+                            </strong>
+                          </span>
+                          <span>
+                            <small>Tổng đã xác nhận</small>
+                            <strong>
+                              {formatCurrency(booking.totalPrice)}
+                            </strong>
+                          </span>
                         </div>
-                        {booking.cancellationReason && <p className="booking-card__cancel-note"><CircleX size={16} /> Lý do hủy: {booking.cancellationReason}</p>}
-                        {cancellationExpired && (
-                          <p className="inline-notice inline-notice--warning">
-                            <strong>Đã quá hạn hủy đặt phòng.</strong>{' '}
-                            Chỉ được hủy trước 14:00 ngày trước ngày nhận phòng.
+                        {booking.cancellationReason && (
+                          <p className="booking-card__cancel-note">
+                            <CircleX size={16} /> Lý do hủy:{" "}
+                            {booking.cancellationReason}
                           </p>
                         )}
+                        {cancellationExpired && (
+                          <p className="inline-notice inline-notice--warning">
+                            <strong>Đã quá hạn hủy đặt phòng.</strong> Chỉ được
+                            hủy trước 14:00 ngày trước ngày nhận phòng.
+                          </p>
+                        )}
+                        {showReviewPanel && (
+                          <BookingReviewPanel
+                            review={review}
+                            confirmingDelete={
+                              Boolean(review) && deleteReviewId === review.id
+                            }
+                            busy={deletingReview}
+                            onWrite={() =>
+                              setReviewModal({ booking, review: null })
+                            }
+                            onEdit={() => setReviewModal({ booking, review })}
+                            onAskDelete={() => setDeleteReviewId(review.id)}
+                            onCancelDelete={() => setDeleteReviewId(null)}
+                            onDelete={() => deleteReview(review)}
+                          />
+                        )}
                         <div className="booking-card__actions">
-                          <Link className="text-link" to={`/rooms/${booking.roomId}`}>Xem phòng</Link>
-                          {booking.canCancel && (
-                            <button type="button" className="text-button text-button--danger" onClick={() => { setCancelId(cancelId === booking.id ? null : booking.id); setReason('') }}>
+                          <Link
+                            className="text-link"
+                            to={`/booking/success/${booking.id}`}
+                          >
+                            Xem chi tiết & thanh toán
+                          </Link>
+                          {booking.canCancel && booking.paymentStatus !== "succeeded" && (
+                            <button
+                              type="button"
+                              className="text-button text-button--danger"
+                              onClick={() => {
+                                setCancelId(
+                                  cancelId === booking.id ? null : booking.id,
+                                );
+                                setReason("");
+                              }}
+                            >
                               Hủy đơn <ChevronDown size={16} />
                             </button>
                           )}
                         </div>
                         {cancelId === booking.id && (
                           <div className="cancel-box">
-                            <label htmlFor={`cancel-reason-${booking.id}`}>Lý do hủy <span>(không bắt buộc)</span></label>
-                            <textarea id={`cancel-reason-${booking.id}`} rows="2" maxLength="300" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Cho CloudStay biết lý do của bạn…" />
+                            <label htmlFor={`cancel-reason-${booking.id}`}>
+                              Lý do hủy <span>(không bắt buộc)</span>
+                            </label>
+                            <textarea
+                              id={`cancel-reason-${booking.id}`}
+                              rows="2"
+                              maxLength="300"
+                              value={reason}
+                              onChange={(event) =>
+                                setReason(event.target.value)
+                              }
+                              placeholder="Cho CloudStay biết lý do của bạn…"
+                            />
                             <div>
-                              <button type="button" className="button button--ghost" onClick={() => { setCancelId(null); setReason('') }}>Giữ đơn</button>
-                              <button type="button" className="button button--danger" onClick={() => cancelBooking(booking.id)} disabled={cancelling}>{cancelling ? 'Đang hủy…' : 'Xác nhận hủy'}</button>
+                              <button
+                                type="button"
+                                className="button button--ghost"
+                                onClick={() => {
+                                  setCancelId(null);
+                                  setReason("");
+                                }}
+                              >
+                                Giữ đơn
+                              </button>
+                              <button
+                                type="button"
+                                className="button button--danger"
+                                onClick={() => cancelBooking(booking.id)}
+                                disabled={cancelling}
+                              >
+                                {cancelling ? "Đang hủy…" : "Xác nhận hủy"}
+                              </button>
                             </div>
                           </div>
                         )}
                       </div>
                     </article>
-                  )
+                  );
                 })}
               </div>
               {(hasPrevious || hasNext) && (
-                <nav className="pagination" aria-label="Phân trang đơn đặt phòng">
-                  <button className="button button--outline" type="button" disabled={!hasPrevious} onClick={() => setPage((current) => current - 1)}><ChevronLeft size={17} /> Trang trước</button>
+                <nav
+                  className="pagination"
+                  aria-label="Phân trang đơn đặt phòng"
+                >
+                  <button
+                    className="button button--outline"
+                    type="button"
+                    disabled={!hasPrevious}
+                    onClick={() => setPage((current) => current - 1)}
+                  >
+                    <ChevronLeft size={17} /> Trang trước
+                  </button>
                   <span>Trang {page}</span>
-                  <button className="button button--outline" type="button" disabled={!hasNext} onClick={() => setPage((current) => current + 1)}>Trang sau <ChevronRight size={17} /></button>
+                  <button
+                    className="button button--outline"
+                    type="button"
+                    disabled={!hasNext}
+                    onClick={() => setPage((current) => current + 1)}
+                  >
+                    Trang sau <ChevronRight size={17} />
+                  </button>
                 </nav>
               )}
             </>
           )}
         </div>
       </section>
+      {reviewModal && (
+        <ReviewFormModal
+          roomName={
+            reviewModal.booking.room?.name || reviewModal.booking.roomName
+          }
+          review={reviewModal.review}
+          defaultDisplayName={getApiSession().user?.fullName ?? ""}
+          onSubmit={submitReview}
+          onClose={() => setReviewModal(null)}
+        />
+      )}
     </div>
-  )
+  );
 }

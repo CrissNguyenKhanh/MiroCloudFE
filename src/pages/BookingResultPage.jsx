@@ -4,6 +4,7 @@ import { Link, useLocation, useParams } from 'react-router-dom'
 import { api } from '../api'
 import { getErrorMessage } from '../api/errors'
 import { ErrorState, LoadingState } from '../components/common/States'
+import PaymentPanel from '../components/payments/PaymentPanel'
 import { useToast } from '../contexts/ToastContext'
 import { formatCurrency, formatDateVN } from '../utils/date'
 
@@ -61,6 +62,13 @@ export default function BookingResultPage() {
           <div><Home /><span><small>Hạng phòng</small><strong>{booking.room?.name || booking.roomName || 'Thông tin phòng'}</strong><small>Phòng {booking.room?.roomNumber || booking.roomNumber || '—'}</small></span></div>
           <div><MapPin /><span><small>Tổng đã xác nhận</small><strong>{formatCurrency(booking.totalPrice)}</strong><small>Giá do booking backend trả về</small></span></div>
         </div>
+
+        <PaymentPanel
+          booking={booking}
+          onPaymentChange={(changes) =>
+            setBooking((current) => ({ ...current, ...changes }))
+          }
+        />
 
         <div className="result-card__actions">
           <Link className="button button--navy" to="/bookings">Xem đơn của tôi</Link>
