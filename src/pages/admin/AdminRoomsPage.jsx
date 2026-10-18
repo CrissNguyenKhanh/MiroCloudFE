@@ -3,9 +3,10 @@ import { Edit3, Images, Plus, Search, ToggleLeft, ToggleRight, X } from 'lucide-
 import { api } from '../../api'
 import { getErrorMessage } from '../../api/errors'
 import { ROOM_TYPES } from '../../data/mockData'
-import { ErrorState, FieldError, LoadingState } from '../../components/common/States'
+import { EmptyState, ErrorState, FieldError, LoadingState } from '../../components/common/States'
 import AdminMediaManager from '../../components/media/AdminMediaManager'
 import { useToast } from '../../contexts/ToastContext'
+import useDialogAccessibility from '../../hooks/useDialogAccessibility'
 import { formatCurrency } from '../../utils/date'
 
 const emptyForm = {
@@ -25,6 +26,11 @@ export default function AdminRoomsPage() {
   const [saving, setSaving] = useState(false)
   const [mediaRoom, setMediaRoom] = useState(null)
   const { showToast } = useToast()
+  const roomFormRef = useDialogAccessibility({
+    open: formOpen,
+    onClose: () => setFormOpen(false),
+    closeDisabled: saving,
+  })
 
   const loadRooms = useCallback(async () => {
     setStatus('loading')
@@ -139,7 +145,9 @@ export default function AdminRoomsPage() {
 
       {status === 'loading' && <LoadingState label="Đang tải danh sách phòng…" />}
       {status === 'error' && <ErrorState message={error} onRetry={loadRooms} />}
-      {status === 'success' && (
+      {status === 'success' && rooms.length === 0 && <EmptyState title="Chưa có phòng" message="Tạo phòng đầu tiên để bắt đầu quản lý kho phòng." />}
+      {status === 'success' && rooms.length > 0 && filtered.length === 0 && <EmptyState title="Không tìm thấy phòng" message="Hãy thử tên hoặc số phòng khác." />}
+      {status === 'success' && filtered.length > 0 && (
         <div className="admin-panel admin-panel--flush">
           <div className="admin-table-wrap">
             <table className="admin-table">
@@ -162,9 +170,9 @@ export default function AdminRoomsPage() {
       )}
 
       {formOpen && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setFormOpen(false)}>
-          <section className="admin-modal" role="dialog" aria-modal="true" aria-labelledby="room-form-title">
-            <div className="admin-modal__header"><div><span className="eyebrow">{editingId ? 'Chỉnh sửa' : 'Phòng mới'}</span><h2 id="room-form-title">{editingId ? 'Cập nhật phòng' : 'Thêm phòng'}</h2></div><button className="icon-button" type="button" onClick={() => setFormOpen(false)} aria-label="Đóng"><X /></button></div>
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !saving && setFormOpen(false)}>
+          <section ref={roomFormRef} tabIndex={-1} className="admin-modal" role="dialog" aria-modal="true" aria-labelledby="room-form-title">
+            <div className="admin-modal__header"><div><span className="eyebrow">{editingId ? 'Chỉnh sửa' : 'Phòng mới'}</span><h2 id="room-form-title">{editingId ? 'Cập nhật phòng' : 'Thêm phòng'}</h2></div><button className="icon-button" type="button" onClick={() => setFormOpen(false)} aria-label="Đóng" disabled={saving}><X /></button></div>
             <form className="stack-form" onSubmit={save} noValidate>
               <div className="form-grid form-grid--two">
                 <label>Tên phòng<input name="name" value={form.name} onChange={update} /><FieldError>{formErrors.name}</FieldError></label>
@@ -179,7 +187,7 @@ export default function AdminRoomsPage() {
               <label>Hướng nhìn<input name="view" value={form.view} onChange={update} /></label>
               <label>Tiện nghi <span>(phân tách bằng dấu phẩy)</span><input name="amenitiesText" value={form.amenitiesText} onChange={update} /></label>
               <label>Mô tả<textarea rows="3" name="description" value={form.description} onChange={update} /></label>
-              <div className="admin-modal__actions"><button type="button" className="button button--ghost" onClick={() => setFormOpen(false)}>Hủy</button><button className="button button--navy" type="submit" disabled={saving}>{saving ? 'Đang lưu…' : 'Lưu phòng'}</button></div>
+              <div className="admin-modal__actions"><button type="button" className="button button--ghost" onClick={() => setFormOpen(false)} disabled={saving}>Hủy</button><button className="button button--navy" type="submit" disabled={saving}>{saving ? 'Đang lưu…' : 'Lưu phòng'}</button></div>
             </form>
           </section>
         </div>

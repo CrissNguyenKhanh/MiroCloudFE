@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { X } from 'lucide-react'
 import { getErrorMessage } from '../../api/errors'
+import useDialogAccessibility from '../../hooks/useDialogAccessibility'
 import { FieldError } from '../common/States'
 import { REVIEW_LIMITS, validateReview } from '../../utils/review'
 import StarRatingInput from './StarRatingInput'
@@ -18,6 +19,7 @@ export default function ReviewFormModal({ roomName, review = null, defaultDispla
   const [errors, setErrors] = useState({})
   const [submitError, setSubmitError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const dialogRef = useDialogAccessibility({ onClose, closeDisabled: submitting })
 
   const setField = (field, value) => {
     setValues((current) => ({ ...current, [field]: value }))
@@ -48,7 +50,7 @@ export default function ReviewFormModal({ roomName, review = null, defaultDispla
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !submitting && onClose()}>
-      <section className="admin-modal admin-modal--small" role="dialog" aria-modal="true" aria-labelledby="review-form-title">
+      <section ref={dialogRef} tabIndex={-1} className="admin-modal admin-modal--small" role="dialog" aria-modal="true" aria-labelledby="review-form-title">
         <div className="admin-modal__header">
           <div>
             <span className="eyebrow">{editing ? 'Chỉnh sửa' : 'Chia sẻ trải nghiệm'}</span>

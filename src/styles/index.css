@@ -1,12 +1,43 @@
+@font-face {
+  font-family: "Noto Serif";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("../assets/fonts/noto-serif-vietnamese-normal.woff2") format("woff2");
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+
+@font-face {
+  font-family: "Noto Serif";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("../assets/fonts/noto-serif-latin-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Noto Serif";
+  font-style: italic;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("../assets/fonts/noto-serif-vietnamese-italic.woff2") format("woff2");
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+
+@font-face {
+  font-family: "Noto Serif";
+  font-style: italic;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("../assets/fonts/noto-serif-latin-italic.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 :root {
-  font-family:
-    Inter,
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  --font-body: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-heading: "Noto Serif", "Times New Roman", serif;
+  font-family: var(--font-body);
   color: #18313b;
   background: #f7f4ed;
   font-synthesis: none;
@@ -65,6 +96,7 @@
   color: var(--muted);
   font-size: 0.78rem;
   line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 .inline-notice--warning {
@@ -130,9 +162,6 @@
   .pagination .button {
     width: 100%;
   }
-  .admin-sidebar nav {
-    grid-template-columns: repeat(5, 1fr);
-  }
 }
 
 * {
@@ -145,7 +174,7 @@ html {
 
 body {
   margin: 0;
-  min-width: 320px;
+  min-width: 0;
   min-height: 100vh;
   background: var(--cream-50);
   color: var(--ink);
@@ -191,10 +220,12 @@ h1,
 h2,
 h3 {
   color: var(--navy-950);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-heading);
   font-weight: 500;
-  line-height: 1.08;
-  letter-spacing: -0.025em;
+  font-kerning: normal;
+  line-height: 1.14;
+  letter-spacing: -0.012em;
+  text-wrap: balance;
 }
 
 h1 {
@@ -304,7 +335,8 @@ textarea:focus-visible {
   padding: 0 21px;
   cursor: pointer;
   font-weight: 750;
-  line-height: 1;
+  line-height: 1.25;
+  text-align: center;
   transition:
     transform 0.2s ease,
     background 0.2s ease,
@@ -471,7 +503,7 @@ textarea:focus-visible {
 }
 
 .brand__name {
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-heading);
   font-size: 1.45rem;
   font-weight: 600;
   letter-spacing: -0.02em;
@@ -493,10 +525,12 @@ textarea:focus-visible {
   min-height: 74px;
   align-items: center;
   justify-content: space-between;
+  gap: 24px;
 }
 
 .header__nav {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 31px;
 }
@@ -558,16 +592,25 @@ textarea:focus-visible {
 
 .account-menu {
   position: relative;
+  min-width: 0;
 }
 
 .account-menu__trigger {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 8px;
   border: 0;
   background: none;
   cursor: pointer;
   font-weight: 700;
+}
+
+.account-menu__label {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .account-menu__avatar {
@@ -635,7 +678,7 @@ textarea:focus-visible {
 
 .footer__grid {
   display: grid;
-  grid-template-columns: 1.4fr 0.75fr 1.1fr 1fr;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.75fr) minmax(0, 1.1fr) minmax(0, 1fr);
   gap: 60px;
 }
 
@@ -786,14 +829,16 @@ textarea:focus-visible {
 }
 
 .hero__copy {
-  width: min(690px, 68%);
+  width: min(720px, 72%);
 }
 
 .hero__copy h1 {
   margin: 22px 0 24px;
   color: white;
-  font-size: clamp(3.4rem, 6vw, 6rem);
-  letter-spacing: -0.045em;
+  font-size: clamp(3rem, 5.4vw, 5.35rem);
+  line-height: 1.1;
+  letter-spacing: -0.012em;
+  text-wrap: balance;
 }
 
 .hero__copy h1 em {
@@ -805,6 +850,7 @@ textarea:focus-visible {
   max-width: 560px;
   color: #dbe5e4;
   font-size: 1.12rem;
+  overflow-wrap: anywhere;
 }
 
 .hero__trust {
@@ -835,7 +881,7 @@ textarea:focus-visible {
 
 .search-form {
   display: grid;
-  grid-template-columns: 1fr 1px 1fr 1px 0.7fr auto;
+  grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr) 1px minmax(0, 0.7fr) auto;
   align-items: center;
   border-radius: 13px;
   background: rgba(255, 255, 255, 0.98);
@@ -914,10 +960,15 @@ textarea:focus-visible {
 
 .section-heading--split {
   display: grid;
-  grid-template-columns: 1.25fr 0.75fr;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
   align-items: end;
   gap: 70px;
   margin-bottom: 43px;
+}
+
+.section-heading--split > *,
+.section-heading__aside {
+  min-width: 0;
 }
 
 .section-heading h2 {
@@ -936,10 +987,11 @@ textarea:focus-visible {
 }
 
 .room-grid--featured {
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .room-card {
+  min-width: 0;
   overflow: hidden;
   border: 1px solid #e3dfd6;
   border-radius: 16px;
@@ -1075,8 +1127,13 @@ textarea:focus-visible {
   gap: 16px;
 }
 
+.room-card__heading > * {
+  min-width: 0;
+}
+
 .room-card__heading h3 {
   margin: 6px 0 0;
+  overflow-wrap: anywhere;
 }
 
 .room-card__heading h3 a:hover {
@@ -1144,7 +1201,7 @@ textarea:focus-visible {
 
 .experience-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: center;
   gap: 90px;
 }
@@ -1231,7 +1288,7 @@ textarea:focus-visible {
   background: rgba(12, 47, 61, 0.95);
   padding: 22px 25px;
   color: white;
-  font-family: Georgia, serif;
+  font-family: var(--font-heading);
   font-size: 1.12rem;
   font-style: italic;
 }
@@ -1287,7 +1344,7 @@ textarea:focus-visible {
 
 .numbers-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .numbers-grid > div {
@@ -1303,7 +1360,7 @@ textarea:focus-visible {
 
 .numbers-grid strong {
   color: var(--navy-900);
-  font-family: Georgia, serif;
+  font-family: var(--font-heading);
   font-size: 2.3rem;
   line-height: 1;
 }
@@ -1335,6 +1392,7 @@ textarea:focus-visible {
   padding: 40px;
   color: var(--muted);
   text-align: center;
+  overflow-wrap: anywhere;
 }
 
 .state-card--compact {
@@ -1372,12 +1430,14 @@ textarea:focus-visible {
   font-size: 0.74rem;
   font-weight: 600;
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .form-alert {
   border-radius: 8px;
   padding: 10px 12px;
   font-size: 0.83rem;
+  overflow-wrap: anywhere;
 }
 
 .form-alert--error {
@@ -1398,7 +1458,7 @@ textarea:focus-visible {
 
 .toast {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 11px;
   border: 1px solid #d5dcd8;
@@ -1410,6 +1470,7 @@ textarea:focus-visible {
   color: var(--ink);
   font-size: 0.86rem;
   animation: toast-in 0.25s ease-out;
+  overflow-wrap: anywhere;
 }
 
 .toast--error {
@@ -1445,6 +1506,11 @@ textarea:focus-visible {
   color: white;
 }
 
+.search-page__top .eyebrow,
+.account-page__hero .eyebrow {
+  color: #f0ca95;
+}
+
 .search-page__top h1 {
   margin: 10px 0 32px;
   color: white;
@@ -1477,9 +1543,13 @@ textarea:focus-visible {
 
 .results-layout {
   display: grid;
-  grid-template-columns: 230px 1fr;
+  grid-template-columns: 230px minmax(0, 1fr);
   align-items: start;
   gap: 38px;
+}
+
+.results-content {
+  min-width: 0;
 }
 
 .filters-panel {
@@ -1540,7 +1610,7 @@ textarea:focus-visible {
 }
 
 .room-grid--results {
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 /* Room detail */
@@ -1561,12 +1631,17 @@ textarea:focus-visible {
 .room-detail__visual-grid {
   display: grid;
   height: 510px;
-  grid-template-columns: 1.65fr 1fr;
-  grid-template-rows: 1fr 1fr;
+  grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr);
+  grid-template-rows: repeat(2, minmax(0, 1fr));
   gap: 10px;
   margin-top: 25px;
   overflow: hidden;
   border-radius: 18px;
+}
+
+.room-detail__visual-grid > *,
+.room-visual {
+  min-width: 0;
 }
 
 .room-visual--detail {
@@ -1582,7 +1657,7 @@ textarea:focus-visible {
   position: relative;
   display: grid;
   height: 510px;
-  grid-template-columns: minmax(0, 1.65fr) minmax(180px, 1fr);
+  grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr);
   gap: 10px;
   margin-top: 25px;
   overflow: hidden;
@@ -1732,12 +1807,14 @@ textarea:focus-visible {
 }
 
 .room-detail__intro > div:first-child {
+  min-width: 0;
   max-width: 760px;
 }
 
 .room-detail__intro h1 {
   margin: 9px 0 13px;
   font-size: clamp(2.6rem, 4vw, 4rem);
+  overflow-wrap: anywhere;
 }
 
 .room-detail__intro p {
@@ -1754,7 +1831,7 @@ textarea:focus-visible {
 .room-detail__rate strong {
   display: block;
   color: var(--navy-900);
-  font-family: Georgia, serif;
+  font-family: var(--font-heading);
   font-size: 1.65rem;
 }
 
@@ -1765,7 +1842,7 @@ textarea:focus-visible {
 
 .room-detail__quick-facts {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   border-top: 1px solid #e2dfd7;
   border-bottom: 1px solid #e2dfd7;
   padding: 19px 0;
@@ -1805,12 +1882,13 @@ textarea:focus-visible {
 
 .content-block h2 {
   margin: 10px 0 25px;
-  font-size: 2.15rem;
+  font-size: clamp(1.8rem, 4vw, 2.15rem);
+  line-height: 1.18;
 }
 
 .amenities-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 13px 30px;
 }
 
@@ -1828,7 +1906,7 @@ textarea:focus-visible {
 
 .policy-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 22px 35px;
 }
 
@@ -1884,7 +1962,7 @@ textarea:focus-visible {
 }
 
 .form-grid--two {
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .booking-panel > form > label {
@@ -1923,7 +2001,7 @@ textarea:focus-visible {
 
 .price-summary__total strong {
   color: var(--navy-900) !important;
-  font-family: Georgia, serif;
+  font-family: var(--font-heading);
   font-size: 1.27rem;
 }
 
@@ -2041,7 +2119,7 @@ textarea:focus-visible {
   max-width: 500px;
   margin: 10px 0 0;
   color: white;
-  font-family: Georgia, serif;
+  font-family: var(--font-heading);
   font-size: clamp(1.35rem, 2.3vw, 2.1rem);
   line-height: 1.3;
 }
@@ -2096,7 +2174,7 @@ textarea:focus-visible {
 
 .demo-accounts__actions {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -2219,7 +2297,7 @@ textarea:focus-visible {
 
 .guest-summary {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 15px;
   border-radius: 10px;
   background: white;
@@ -2322,6 +2400,7 @@ textarea:focus-visible {
 
 .booking-error {
   display: flex;
+  min-width: 0;
   gap: 12px;
   border: 1px solid #e6c7c1;
   border-radius: 10px;
@@ -2329,6 +2408,7 @@ textarea:focus-visible {
   margin-top: 24px;
   padding: 15px;
   color: #793b35;
+  overflow-wrap: anywhere;
 }
 
 .booking-error > svg {
@@ -2395,7 +2475,9 @@ textarea:focus-visible {
 
 .booking-code {
   display: inline-grid;
-  grid-template-columns: 1fr auto;
+  width: fit-content;
+  max-width: 100%;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   border: 1px dashed #c9bfaf;
   border-radius: 12px;
@@ -2413,9 +2495,11 @@ textarea:focus-visible {
 }
 
 .booking-code strong {
+  min-width: 0;
   color: var(--navy-900);
   font-size: 1.35rem;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.06em;
+  overflow-wrap: anywhere;
 }
 
 .booking-code button {
@@ -2425,7 +2509,7 @@ textarea:focus-visible {
 
 .result-details {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   border-top: 1px solid #e8e4dc;
   border-bottom: 1px solid #e8e4dc;
   padding: 24px 0;
@@ -2483,6 +2567,16 @@ textarea:focus-visible {
   color: #bdcfd2;
 }
 
+.account-page__hero .button--outline {
+  border-color: rgba(255, 255, 255, 0.58);
+  color: white;
+}
+
+.account-page__hero .button--outline:hover:not(:disabled) {
+  border-color: white;
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .account-page__hero-row {
   display: flex;
   align-items: end;
@@ -2534,7 +2628,7 @@ textarea:focus-visible {
 
 .booking-card {
   display: grid;
-  grid-template-columns: 275px 1fr;
+  grid-template-columns: 275px minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid #dfdcd4;
   border-radius: 15px;
@@ -2555,8 +2649,15 @@ textarea:focus-visible {
 .booking-card__topline {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-bottom: 16px;
+}
+
+.booking-card__topline > code {
+  min-width: 0;
+  margin-right: auto;
+  overflow-wrap: anywhere;
 }
 
 .booking-card__code {
@@ -2615,7 +2716,7 @@ textarea:focus-visible {
 
 .booking-card__facts > span {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 0 8px;
 }
 
@@ -2634,7 +2735,9 @@ textarea:focus-visible {
 }
 .booking-card__actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
+  gap: 10px 16px;
   margin-top: 16px;
 }
 .booking-card__actions .text-button,
@@ -2676,6 +2779,7 @@ textarea:focus-visible {
 }
 .cancel-box > div {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 9px;
@@ -2693,7 +2797,7 @@ textarea:focus-visible {
 .notification-item {
   display: grid;
   width: 100%;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 15px;
   border: 1px solid #dfdcd4;
@@ -2730,6 +2834,7 @@ textarea:focus-visible {
   flex-direction: column;
   color: var(--muted);
   font-size: 0.78rem;
+  overflow-wrap: anywhere;
 }
 .notification-item__top {
   justify-content: space-between;
@@ -2935,7 +3040,7 @@ textarea:focus-visible {
 
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 15px;
   margin-bottom: 26px;
 }
@@ -2974,7 +3079,7 @@ textarea:focus-visible {
 .metric-grid strong {
   margin-top: auto;
   color: var(--navy-900);
-  font-family: Georgia, serif;
+  font-family: var(--font-heading);
   font-size: 2rem;
   line-height: 1.1;
 }
@@ -3032,6 +3137,7 @@ textarea:focus-visible {
 }
 
 .admin-table th {
+  position: relative;
   border-bottom: 1px solid #e1e4e2;
   padding: 12px 13px;
   color: #7a898c;
@@ -3044,9 +3150,11 @@ textarea:focus-visible {
 }
 
 .admin-table td {
+  position: relative;
   border-bottom: 1px solid #eceeec;
   padding: 15px 13px;
   vertical-align: middle;
+  overflow-wrap: anywhere;
 }
 
 .admin-table tr:last-child td {
@@ -3185,7 +3293,7 @@ textarea:focus-visible {
 
 .admin-modal {
   width: min(690px, 100%);
-  max-height: calc(100vh - 60px);
+  max-height: calc(100dvh - 60px);
   overflow-y: auto;
   border-radius: 16px;
   background: white;
@@ -3205,7 +3313,17 @@ textarea:focus-visible {
   display: flex;
   align-items: start;
   justify-content: space-between;
+  gap: 18px;
   margin-bottom: 22px;
+}
+
+.admin-modal__header > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.admin-modal__header > .icon-button {
+  flex: none;
 }
 
 .admin-modal__header h2 {
@@ -3215,6 +3333,7 @@ textarea:focus-visible {
 
 .admin-modal__actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 9px;
   border-top: 1px solid #ebe8e1;
@@ -3236,7 +3355,7 @@ textarea:focus-visible {
 
 .standalone-state__code {
   color: #d8cbb7;
-  font-family: Georgia, serif;
+  font-family: var(--font-heading);
   font-size: clamp(5rem, 15vw, 10rem);
   line-height: 0.9;
 }
@@ -3264,7 +3383,7 @@ textarea:focus-visible {
     gap: 20px;
   }
   .room-grid--featured {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .room-grid--featured .room-card:last-child {
     display: none;
@@ -3279,7 +3398,7 @@ textarea:focus-visible {
     gap: 40px;
   }
   .metric-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .admin-page {
     width: min(100% - 40px, 1200px);
@@ -3305,6 +3424,9 @@ textarea:focus-visible {
     border-bottom: 1px solid var(--border);
     background: var(--cream-50);
     box-shadow: var(--shadow-lg);
+    max-height: calc(100dvh - 74px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 15px 20px 22px;
   }
   .header__nav--open {
@@ -3375,7 +3497,7 @@ textarea:focus-visible {
     min-height: 500px;
   }
   .footer__grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .search-page__top {
@@ -3393,7 +3515,10 @@ textarea:focus-visible {
     inset: 0 0 0 auto;
     display: none;
     width: min(360px, 90vw);
+    max-height: 100dvh;
     align-content: start;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     border-radius: 0;
     box-shadow: -20px 0 50px rgba(0, 0, 0, 0.2);
     padding: 28px;
@@ -3412,7 +3537,7 @@ textarea:focus-visible {
     height: 390px;
   }
   .room-detail__quick-facts {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px 0;
   }
   .room-detail__quick-facts span:nth-child(2) {
@@ -3518,7 +3643,8 @@ textarea:focus-visible {
     width: 100%;
   }
   .hero__copy h1 {
-    font-size: 3.25rem;
+    font-size: clamp(2.45rem, 11vw, 3rem);
+    line-height: 1.12;
   }
   .hero__trust {
     display: grid;
@@ -3533,7 +3659,7 @@ textarea:focus-visible {
     bottom: 18px;
   }
   .search-form {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     padding: 9px;
   }
   .search-form__guests {
@@ -3574,7 +3700,7 @@ textarea:focus-visible {
     font-size: 1rem;
   }
   .numbers-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 28px 0;
   }
   .numbers-grid > div:nth-child(2) {
@@ -3612,7 +3738,7 @@ textarea:focus-visible {
   }
   .room-detail__visual-grid {
     height: auto;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-rows: 270px 130px;
   }
   .media-gallery {
@@ -3644,7 +3770,7 @@ textarea:focus-visible {
     text-align: left;
   }
   .room-detail__quick-facts {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .room-detail__quick-facts span {
     align-items: start;
@@ -3695,6 +3821,13 @@ textarea:focus-visible {
   .result-card__actions {
     flex-direction: column;
   }
+  .booking-code {
+    width: 100%;
+  }
+  .booking-code strong {
+    font-size: 1.08rem;
+    letter-spacing: 0.035em;
+  }
 
   .account-page__hero {
     padding: 47px 0;
@@ -3716,6 +3849,13 @@ textarea:focus-visible {
   .booking-card__content {
     padding: 20px;
   }
+  .booking-card__actions,
+  .booking-review__actions,
+  .review-card__actions,
+  .cancel-box > div {
+    align-items: stretch;
+    flex-direction: column;
+  }
   .notification-item {
     align-items: start;
   }
@@ -3734,7 +3874,7 @@ textarea:focus-visible {
 
   .admin-shell {
     display: block;
-    padding-bottom: 75px;
+    padding-bottom: 82px;
   }
   .admin-sidebar {
     position: fixed;
@@ -3755,8 +3895,12 @@ textarea:focus-visible {
   }
   .admin-sidebar nav {
     display: grid;
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(64px, 1fr);
     gap: 2px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
   }
   .admin-nav-link,
   .admin-nav-link:not(.admin-nav-link--active)::after {
@@ -3765,7 +3909,9 @@ textarea:focus-visible {
     gap: 2px;
     padding: 8px 2px;
     font-size: 0.54rem;
-    white-space: nowrap;
+    line-height: 1.2;
+    text-align: center;
+    white-space: normal;
   }
   .admin-nav-link svg {
     width: 18px;
@@ -3810,7 +3956,15 @@ textarea:focus-visible {
     min-width: 760px;
   }
   .admin-modal {
+    max-height: calc(100dvh - 24px);
     padding: 22px 17px;
+  }
+  .modal-backdrop {
+    padding: 12px;
+  }
+  .admin-modal__actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 
@@ -3919,7 +4073,7 @@ textarea:focus-visible {
 
 .review-bar {
   display: grid;
-  grid-template-columns: 46px 1fr 28px;
+  grid-template-columns: 46px minmax(0, 1fr) 28px;
   align-items: center;
   gap: 12px;
   border: 0;
@@ -3975,6 +4129,7 @@ textarea:focus-visible {
 .review-card__head {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
@@ -3983,7 +4138,9 @@ textarea:focus-visible {
 }
 .review-card__head > div {
   display: grid;
+  min-width: 0;
   gap: 2px;
+  overflow-wrap: anywhere;
 }
 .review-card__head small {
   color: var(--muted);
@@ -4021,6 +4178,7 @@ textarea:focus-visible {
 .review-card__actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 14px;
   margin-top: 14px;
   color: var(--muted);
@@ -4075,6 +4233,7 @@ textarea:focus-visible {
 .booking-review__actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 14px;
   margin-top: 10px;
   color: var(--muted);
@@ -4126,7 +4285,7 @@ textarea:focus-visible {
 }
 .payment-panel__heading {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
 }
@@ -4145,7 +4304,7 @@ textarea:focus-visible {
 }
 .payment-panel__summary {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-top: 18px;
 }
@@ -4184,7 +4343,7 @@ textarea:focus-visible {
 /* Admin room media */
 .admin-media-manager {
   width: min(1040px, calc(100vw - 36px));
-  max-height: calc(100vh - 36px);
+  max-height: calc(100dvh - 36px);
   overflow-y: auto;
 }
 .admin-media-manager .admin-modal__header p {
@@ -4257,6 +4416,13 @@ textarea:focus-visible {
 }
 .admin-media-file-info span {
   display: grid;
+  min-width: 0;
+}
+.admin-media-file-info strong {
+  overflow-wrap: anywhere;
+}
+.admin-media-upload__error {
+  grid-column: 1 / -1;
 }
 .admin-media-preview {
   width: 120px;
@@ -4352,6 +4518,7 @@ textarea:focus-visible {
   bottom: 0;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 20px;
   border: 1px solid #d5ccbc;
@@ -4360,6 +4527,10 @@ textarea:focus-visible {
   box-shadow: 0 -10px 30px rgba(14, 35, 44, 0.12);
   margin-top: 16px;
   padding: 16px;
+}
+.admin-media-confirm > div:first-child {
+  min-width: min(280px, 100%);
+  flex: 1 1 320px;
 }
 .admin-media-confirm h3,
 .admin-media-confirm p {
@@ -4414,8 +4585,8 @@ textarea:focus-visible {
 @media (max-width: 620px) {
   .admin-media-manager {
     width: 100%;
-    max-height: 100vh;
-    border-radius: 0;
+    max-height: calc(100dvh - 24px);
+    border-radius: 14px;
   }
   .admin-media-upload,
   .admin-media-item,
