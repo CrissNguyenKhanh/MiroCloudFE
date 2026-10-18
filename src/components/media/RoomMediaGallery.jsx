@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Expand, ImageOff, Play, RotateCcw, X } from "lucide-react";
 import { api } from "../../api";
+import useDialogAccessibility from "../../hooks/useDialogAccessibility";
 import { sortRoomMedia } from "../../utils/media";
 import RoomVisual from "../rooms/RoomVisual";
 
@@ -25,6 +26,10 @@ export default function RoomMediaGallery({ room }) {
   const [failedIds, setFailedIds] = useState(new Set());
   const [lightbox, setLightbox] = useState(false);
   const requestRef = useRef(0);
+  const lightboxRef = useDialogAccessibility({
+    open: lightbox,
+    onClose: () => setLightbox(false),
+  });
 
   const load = useCallback(async () => {
     const requestId = ++requestRef.current;
@@ -122,7 +127,7 @@ export default function RoomMediaGallery({ room }) {
         </div>
       )}
       {lightbox && selected.mediaType === "image" && (
-        <div className="media-lightbox" role="dialog" aria-modal="true" aria-label="Xem ảnh phòng kích thước lớn" onMouseDown={(event) => event.target === event.currentTarget && setLightbox(false)}>
+        <div ref={lightboxRef} tabIndex={-1} className="media-lightbox" role="dialog" aria-modal="true" aria-label="Xem ảnh phòng kích thước lớn" onMouseDown={(event) => event.target === event.currentTarget && setLightbox(false)}>
           <button className="icon-button" type="button" onClick={() => setLightbox(false)} aria-label="Đóng ảnh lớn"><X /></button>
           <img src={selected.url} alt={selected.altText || `Phòng ${room.name}`} />
         </div>

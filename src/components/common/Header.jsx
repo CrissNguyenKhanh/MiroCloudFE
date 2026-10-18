@@ -108,6 +108,18 @@ export default function Header() {
     };
   }, [isAuthenticated, showToast, user?.id]);
 
+  useEffect(() => {
+    if (!menuOpen && !accountOpen) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+        setAccountOpen(false);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [accountOpen, menuOpen]);
+
   const closeMenus = () => {
     setMenuOpen(false);
     setAccountOpen(false);

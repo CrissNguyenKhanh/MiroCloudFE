@@ -6,6 +6,7 @@ import StatusBadge from '../../components/common/StatusBadge'
 import PaymentStatusBadge from '../../components/payments/PaymentStatusBadge'
 import { EmptyState, ErrorState, LoadingState } from '../../components/common/States'
 import { useToast } from '../../contexts/ToastContext'
+import useDialogAccessibility from '../../hooks/useDialogAccessibility'
 import { formatCurrency, formatDateVN } from '../../utils/date'
 
 const PAGE_SIZE = 20
@@ -25,6 +26,11 @@ export default function AdminBookingsPage() {
   const [cancelling, setCancelling] = useState(false)
   const requestIdRef = useRef(0)
   const { showToast } = useToast()
+  const cancelDialogRef = useDialogAccessibility({
+    open: Boolean(cancelTarget),
+    onClose: () => setCancelTarget(null),
+    closeDisabled: cancelling,
+  })
 
   const loadBookings = useCallback(async () => {
     const requestId = ++requestIdRef.current
@@ -176,13 +182,13 @@ export default function AdminBookingsPage() {
       )}
 
       {cancelTarget && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setCancelTarget(null)}>
-          <section className="admin-modal admin-modal--small" role="dialog" aria-modal="true" aria-labelledby="cancel-title">
-            <div className="admin-modal__header"><div><span className="eyebrow">Thao tác nhạy cảm</span><h2 id="cancel-title">Hủy booking {cancelTarget.code}</h2></div><button className="icon-button" type="button" onClick={() => setCancelTarget(null)} aria-label="Đóng"><X /></button></div>
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !cancelling && setCancelTarget(null)}>
+          <section ref={cancelDialogRef} tabIndex={-1} className="admin-modal admin-modal--small" role="dialog" aria-modal="true" aria-labelledby="cancel-title">
+            <div className="admin-modal__header"><div><span className="eyebrow">Thao tác nhạy cảm</span><h2 id="cancel-title">Hủy booking {cancelTarget.code}</h2></div><button className="icon-button" type="button" onClick={() => setCancelTarget(null)} aria-label="Đóng" disabled={cancelling}><X /></button></div>
             <p>Booking của <strong>{cancelTarget.user?.fullName || `ID ${cancelTarget.userId}`}</strong> tại <strong>{cancelTarget.room?.name || cancelTarget.roomName || `ID ${cancelTarget.roomId}`}</strong> sẽ chuyển sang trạng thái đã hủy.</p>
             <form className="stack-form" onSubmit={cancelBooking}>
               <label htmlFor="admin-cancel-reason">Lý do hủy <span>(bắt buộc)</span><textarea id="admin-cancel-reason" rows="3" minLength="2" maxLength="300" required value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Nhập lý do hủy booking…" /></label>
-              <div className="admin-modal__actions"><button type="button" className="button button--ghost" onClick={() => setCancelTarget(null)}>Quay lại</button><button className="button button--danger" type="submit" disabled={cancelling || reason.trim().length < 2}>{cancelling ? 'Đang hủy…' : 'Xác nhận hủy'}</button></div>
+              <div className="admin-modal__actions"><button type="button" className="button button--ghost" onClick={() => setCancelTarget(null)} disabled={cancelling}>Quay lại</button><button className="button button--danger" type="submit" disabled={cancelling || reason.trim().length < 2}>{cancelling ? 'Đang hủy…' : 'Xác nhận hủy'}</button></div>
             </form>
           </section>
         </div>

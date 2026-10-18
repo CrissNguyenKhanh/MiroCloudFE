@@ -14,11 +14,19 @@ function SessionRestoreError({ message, onRetry }) {
   );
 }
 
+function SessionRestoreLoading() {
+  return (
+    <div className="page-state-wrap">
+      <LoadingState label="Đang khôi phục phiên đăng nhập…" />
+    </div>
+  );
+}
+
 export function ProtectedRoute({ children }) {
   const { isAuthenticated, isInitializing, restoreError, retrySession } = useAuth();
   const location = useLocation();
   if (isInitializing)
-    return <LoadingState label="Đang khôi phục phiên đăng nhập…" />;
+    return <SessionRestoreLoading />;
   if (restoreError)
     return <SessionRestoreError message={restoreError} onRetry={retrySession} />;
   if (!isAuthenticated) {
@@ -37,7 +45,7 @@ export function AdminRoute({ children }) {
   const { isAuthenticated, isAdmin, isInitializing, restoreError, retrySession } = useAuth();
   const location = useLocation();
   if (isInitializing)
-    return <LoadingState label="Đang khôi phục phiên đăng nhập…" />;
+    return <SessionRestoreLoading />;
   if (restoreError)
     return <SessionRestoreError message={restoreError} onRetry={retrySession} />;
   if (!isAuthenticated) {

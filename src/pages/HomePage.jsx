@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import { api, isMockMode } from '../api'
 import RoomCard from '../components/rooms/RoomCard'
 import SearchForm from '../components/rooms/SearchForm'
-import { ErrorState, LoadingState } from '../components/common/States'
+import { EmptyState, ErrorState, LoadingState } from '../components/common/States'
 import { getErrorMessage } from '../api/errors'
 
 export default function HomePage() {
@@ -49,7 +49,7 @@ export default function HomePage() {
         <div className="container hero__content">
           <div className="hero__copy">
             <span className="eyebrow eyebrow--light"><Sparkles size={15} /> Chạm vào một kỳ nghỉ khác biệt</span>
-            <h1>Nơi nhịp sống<br />chậm lại <em>vừa đủ.</em></h1>
+            <h1>Nơi nhịp sống chậm lại <em>vừa đủ.</em></h1>
             <p>Phòng nghỉ tinh tế, dịch vụ tận tâm và những khoảng lặng đáng nhớ giữa lòng thành phố.</p>
           </div>
           <div className="hero__trust" aria-label="Cam kết dịch vụ">
@@ -79,7 +79,10 @@ export default function HomePage() {
 
           {status === 'loading' && <LoadingState label="Đang chuẩn bị những căn phòng nổi bật…" />}
           {status === 'error' && <ErrorState message={error} onRetry={loadRooms} />}
-          {status === 'success' && (
+          {status === 'success' && rooms.length === 0 && (
+            <EmptyState title="Chưa có phòng nổi bật" message="Bạn vẫn có thể xem toàn bộ phòng đang nhận đặt." />
+          )}
+          {status === 'success' && rooms.length > 0 && (
             <div className="room-grid room-grid--featured">
               {rooms.map((room) => <RoomCard room={room} key={room.id} />)}
             </div>

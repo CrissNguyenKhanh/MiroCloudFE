@@ -12,6 +12,7 @@ import {
 import { api } from "../../api";
 import { invalidateRoomMedia } from "../../api/mediaCache";
 import { useToast } from "../../contexts/ToastContext";
+import useDialogAccessibility from "../../hooks/useDialogAccessibility";
 import {
   formatFileSize,
   MEDIA_ACCEPT,
@@ -68,6 +69,10 @@ export default function AdminMediaManager({ room, onClose }) {
   const uploadPreview = useObjectUrl(uploadFile);
   const replacePreview = useObjectUrl(replaceFile);
   const { showToast } = useToast();
+  const managerRef = useDialogAccessibility({
+    onClose,
+    closeDisabled: Boolean(busyId),
+  });
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -219,7 +224,7 @@ export default function AdminMediaManager({ room, onClose }) {
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !busyId && onClose()}>
-      <section className="admin-modal admin-media-manager" role="dialog" aria-modal="true" aria-labelledby="media-manager-title">
+      <section ref={managerRef} tabIndex={-1} className="admin-modal admin-media-manager" role="dialog" aria-modal="true" aria-labelledby="media-manager-title">
         <div className="admin-modal__header">
           <div><span className="eyebrow">Room media</span><h2 id="media-manager-title">Ảnh/video · {room.name}</h2><p>{media.length}/{MEDIA_LIMITS.count} media · còn {remaining} vị trí</p></div>
           <button className="icon-button" type="button" onClick={onClose} disabled={Boolean(busyId)} aria-label="Đóng quản lý ảnh/video"><X /></button>
@@ -232,9 +237,9 @@ export default function AdminMediaManager({ room, onClose }) {
           </div>
           <label className="file-picker">Chọn tệp<input type="file" accept={MEDIA_ACCEPT} onChange={(event) => chooseUpload(event.target.files?.[0])} /></label>
           <label>Alt text<input value={uploadAlt} maxLength={200} onChange={(event) => setUploadAlt(event.target.value)} placeholder="Mô tả ảnh/video cho trợ năng" /></label>
-          {uploadFile && <div className="admin-media-file-info"><FilePreview file={uploadFile} url={uploadPreview} /><span><strong>{uploadFile.name}</strong><small>{formatFileSize(uploadFile.size)}</small></span></div>}
-          {uploadError && <p className="field-error" role="alert">{uploadError}</p>}
           <button className="button button--copper" type="submit" disabled={!uploadFile || Boolean(busyId) || remaining === 0}>{busyId === "upload" ? "Đang tải…" : "Tải lên"}</button>
+          {uploadFile && <div className="admin-media-file-info"><FilePreview file={uploadFile} url={uploadPreview} /><span><strong>{uploadFile.name}</strong><small>{formatFileSize(uploadFile.size)}</small></span></div>}
+          {uploadError && <p className="field-error admin-media-upload__error" role="alert">{uploadError}</p>}
         </form>
 
         {actionError && <p className="inline-notice inline-notice--warning" role="alert">{actionError}</p>}
